@@ -1,5 +1,3 @@
-function clustermon() {
-    
-}
+var Clustermon = require('./clustermon.js');
 
-module.exports = clustermon;
+module.exports = Clustermon;
