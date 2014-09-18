@@ -1,38 +1,39 @@
 # clustermon
 
-<!--
-    [![build status][build-png]][build]
-    [![Coverage Status][cover-png]][cover]
-    [![Davis Dependency status][dep-png]][dep]
--->
-
-<!-- [![NPM][npm-png]][npm] -->
-
-<!-- [![browser support][test-png]][test] -->
-
-Scaffolding for node cluster
+This module abstracts logic for spawning workers via node cluster.
 
 ## Example
 
 ```js
-var clustermon = require("clustermon");
+// launcher.js
+var Clustermon = require("clustermon");
+var clustermon = new Clustermon({
+    exec: path.join(__dirname, "worker.js"),
+    initMaster: function() {
+        // additional master initialization
+    },
+    respawnWorkerCount: 1,  // When workers exit, retry spawning up to x times. -1 for infinite.
+    numCPUs: 8,             // Number of workers to spawn. Default is # cores.
+    logicalIds: [5, 6, 7]   // Give workers an env variable "PROCESS_LOGICAL_ID" based on
+                            // the values in the array and the order of the array.
+});
+clustermon.start();
 
-// TODO. Show example
+// worker.js
+process.title = 'worker';
+// initialize worker stuff here...
+
 ```
 
 ## Docs
 
-### `var someValue = clustermon(/*arguments*/)`
+### `var clustermon = new Clustermon(/*arguments*/)`
 
-<!--
-  This is a jsig notation of your interface.
-  https://github.com/Raynos/jsig
--->
 ```ocaml
 clustermon := (arg: Any) => void
 ```
 
-// TODO. State what the module does.
+This module abstracts logic for spawning workers via node cluster.
 
 ## Installation
 
@@ -44,17 +45,7 @@ clustermon := (arg: Any) => void
 
 ## Contributors
 
- - tom
+ - tomuber
+ - jakev
 
-## MIT Licenced
-
-  [build-png]: https://secure.travis-ci.org/uber/clustermon.png
-  [build]: https://travis-ci.org/uber/clustermon
-  [cover-png]: https://coveralls.io/repos/uber/clustermon/badge.png
-  [cover]: https://coveralls.io/r/uber/clustermon
-  [dep-png]: https://david-dm.org/uber/clustermon.png
-  [dep]: https://david-dm.org/uber/clustermon
-  [test-png]: https://ci.testling.com/uber/clustermon.png
-  [tes]: https://ci.testling.com/uber/clustermon
-  [npm-png]: https://nodei.co/npm/clustermon.png?stars&downloads
-  [npm]: https://nodei.co/npm/clustermon
+## MIT Licensed
