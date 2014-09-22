@@ -82,10 +82,21 @@ ClusterSupervisor.prototype._initMaster = function _initMaster () {
 };
 
 ClusterSupervisor.prototype.stop = function () {
+    this.stopAllWorkers();
+    // ... in anticipation of other resources that may need to be cleaned up
+    // before the supervisor can exit gracefully.
+};
+
+ClusterSupervisor.prototype.stopAllWorkers = function () {
     Object.keys(cluster.workers).forEach(function (id) {
-        cluster.workers[id].kill();
+        // TODO hook into worker state machine
+        cluster.workers[id].kill("SIGTERM");
     });
 };
+
+// TODO forceStopAllWorkers
+// TODO dumpAllWorkers
+// TODO reloadAllWorkers
 
 ClusterSupervisor.prototype.countWorkers = function () {
     return Object.keys(cluster.workers).length;
