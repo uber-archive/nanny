@@ -5,9 +5,9 @@ var os = require('os');
 var logger = debuglog('clustermon');
 var TERM_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGQUIT'];
 
-function Clustermon (options) {
-    if (!(this instanceof Clustermon)) {
-        return new Clustermon(options);
+function ClusterSupervisor(options) {
+    if (!(this instanceof ClusterSupervisor)) {
+        return new ClusterSupervisor(options);
     }
 
     options = options || {};
@@ -33,12 +33,12 @@ function Clustermon (options) {
     }
 }
 
-Clustermon.prototype.start = function start () {
+ClusterSupervisor.prototype.start = function start () {
     this._initMaster();
     return cluster;
 };
 
-Clustermon.prototype._initMaster = function _initMaster () {
+ClusterSupervisor.prototype._initMaster = function _initMaster () {
     this.logger.info('initing master', {
         title: process.title,
         numCPUs: this.numCPUs
@@ -83,7 +83,7 @@ Clustermon.prototype._initMaster = function _initMaster () {
     return cluster;
 };
 
-Clustermon.prototype._spawnWorker = function _spawnWorker (logicalId) {
+ClusterSupervisor.prototype._spawnWorker = function _spawnWorker (logicalId) {
     var worker = cluster.fork({
         PROCESS_LOGICAL_ID: logicalId
     });
@@ -134,4 +134,5 @@ Clustermon.prototype._spawnWorker = function _spawnWorker (logicalId) {
     }.bind(this));
 };
 
-module.exports = Clustermon;
+module.exports = ClusterSupervisor;
+

@@ -1,16 +1,17 @@
-var Clustermon = require('../index.js');
+
+var ClusterSupervisor = require('../cluster-supervisor.js');
 var test = require('tape');
 
-test('extended init Clustermon', function (assert) {
-    var nc = new Clustermon({
+test('extended init ClusterSupervisor', function (assert) {
+    var supervisor = new ClusterSupervisor({
         initMaster: function () {
             assert.equal(true, true);
         },
-        exec: __dirname + '/mock_server.js',
+        exec: __dirname + '/mock-server.js',
         respawnWorkerCount: 0,
         numCPUs: 8
     });
-    var cluster = nc.start();
+    var cluster = supervisor.start();
 
     if (cluster) {
         setTimeout(function () {
@@ -22,3 +23,4 @@ test('extended init Clustermon', function (assert) {
         }, 1000);
     }
 });
+

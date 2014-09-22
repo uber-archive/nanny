@@ -1,10 +1,10 @@
-var Clustermon = require('../index.js');
+var ClusterSupervisor = require('../cluster-supervisor.js');
 var test = require('tape');
 
-test('init Clustermon', function (assert) {
-    var nc = new Clustermon({
+test('init ClusterSupervisor', function (assert) {
+    var nc = new ClusterSupervisor({
         respawnWorkerCount: 0,
-        exec: __dirname + '/mock_server.js',
+        exec: __dirname + '/mock-server.js',
         numCPUs: 8
     });
     var cluster = nc.start();

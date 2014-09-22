@@ -1,3 +1,1 @@
-var Clustermon = require('./clustermon.js');
-
-module.exports = Clustermon;
+module.exports = require("./cluster-supervisor");
