@@ -3,22 +3,18 @@ var path = require('path');
 var test = require('tape');
 
 test('init ClusterSupervisor', function (assert) {
-    var nc = new ClusterSupervisor({
+    var supervisor = new ClusterSupervisor({
         respawnWorkerCount: 0,
         exec: path.join(__dirname, 'mock-server.js'),
         numCPUs: 8
     });
-    var cluster = nc.start();
+    supervisor.start();
 
-    if (cluster) {
-        assert.strictEqual(Object.keys(cluster.workers).length, 8);
+    assert.strictEqual(supervisor.countWorkers(), 8);
 
-        setTimeout(function() {
-            Object.keys(cluster.workers).forEach(function (id) {
-                cluster.workers[id].kill();
-            });
+    setTimeout(function() {
+        supervisor.stop();
 
-            assert.end();
-        }, 1000);
-    }
+        assert.end();
+    }, 1000);
 });

@@ -12,16 +12,12 @@ test('extended init ClusterSupervisor', function (assert) {
         respawnWorkerCount: 0,
         numCPUs: 8
     });
-    var cluster = supervisor.start();
 
-    if (cluster) {
-        setTimeout(function () {
-            Object.keys(cluster.workers).forEach(function (id) {
-                cluster.workers[id].kill();
-            });
+    supervisor.start();
 
-            assert.end();
-        }, 1000);
-    }
+    setTimeout(function () {
+        supervisor.stop();
+        assert.end();
+    }, 1000);
 });
 

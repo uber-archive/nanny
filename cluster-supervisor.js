@@ -35,10 +35,11 @@ function ClusterSupervisor(options) {
 
 ClusterSupervisor.prototype.start = function start () {
     this._initMaster();
-    return cluster;
 };
 
 ClusterSupervisor.prototype._initMaster = function _initMaster () {
+    var self = this;
+
     this.logger.info('initing master', {
         title: process.title,
         numCPUs: this.numCPUs
@@ -71,16 +72,23 @@ ClusterSupervisor.prototype._initMaster = function _initMaster () {
                 signal: signal
             });
 
-            Object.keys(cluster.workers).forEach(function (id) {
-                cluster.workers[id].kill();
-            });
+            self.stop();
             process.exit();
         }.bind(this));
     }.bind(this));
 
     if (this.initMaster) this.initMaster();
 
-    return cluster;
+};
+
+ClusterSupervisor.prototype.stop = function () {
+    Object.keys(cluster.workers).forEach(function (id) {
+        cluster.workers[id].kill();
+    });
+};
+
+ClusterSupervisor.prototype.countWorkers = function () {
+    return Object.keys(cluster.workers).length;
 };
 
 ClusterSupervisor.prototype._spawnWorker = function _spawnWorker (logicalId) {

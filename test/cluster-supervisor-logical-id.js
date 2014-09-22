@@ -9,25 +9,19 @@ test('init ClusterSupervisor with logical IDs', function (assert) {
         numCPUs: 8,
         logicalIds: [11, 12, 13, 14, 15, 16, 17, 18]
     });
-    var cluster = supervisor.start();
+    supervisor.start();
 
-    if (cluster) {
-        assert.strictEqual(Object.keys(cluster.workers).length, 8);
+    assert.strictEqual(supervisor.countWorkers(), 8);
+
+    setTimeout(function() {
+        supervisor.stop();
+
+        assert.strictEqual(supervisor.countWorkers(), 0);
 
         setTimeout(function() {
-            Object.keys(cluster.workers).forEach(function (id) {
-                cluster.workers[id].kill();
-            });
+            supervisor.stop();
 
-            assert.strictEqual(Object.keys(cluster.workers).length, 0);
-
-            setTimeout(function() {
-                Object.keys(cluster.workers).forEach(function (id) {
-                    cluster.workers[id].kill();
-                });
-
-                assert.end();
-            }, 1000);
+            assert.end();
         }, 1000);
-    }
+    }, 1000);
 });
