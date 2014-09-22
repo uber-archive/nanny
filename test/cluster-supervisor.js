@@ -1,10 +1,11 @@
 var ClusterSupervisor = require('../cluster-supervisor.js');
+var path = require('path');
 var test = require('tape');
 
 test('init ClusterSupervisor', function (assert) {
     var nc = new ClusterSupervisor({
         respawnWorkerCount: 0,
-        exec: __dirname + '/mock-server.js',
+        exec: path.join(__dirname, 'mock-server.js'),
         numCPUs: 8
     });
     var cluster = nc.start();
