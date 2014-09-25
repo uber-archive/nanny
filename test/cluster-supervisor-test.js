@@ -18,3 +18,4 @@ test('init ClusterSupervisor', function (assert) {
         assert.end();
     }, 1000);
 });
+

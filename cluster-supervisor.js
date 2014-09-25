@@ -102,6 +102,16 @@ ClusterSupervisor.prototype.countWorkers = function () {
     return Object.keys(cluster.workers).length;
 };
 
+ClusterSupervisor.prototype.getWorker = function (id) {
+    return cluster.workers[id];
+};
+
+ClusterSupervisor.prototype.forEachWorker = function (callback, thisp) {
+    Object.keys(cluster.workers).forEach(function (id) {
+        callback.call(thisp, cluster.workers[id], id, this);
+    }, this);
+};
+
 ClusterSupervisor.prototype._spawnWorker = function _spawnWorker (logicalId) {
     var worker = cluster.fork({
         PROCESS_LOGICAL_ID: logicalId

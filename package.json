@@ -28,8 +28,8 @@
     "url": "http://github.com/uber/clustermon/raw/master/LICENSE"
   }],
   "scripts": {
-    "test": "npm run jshint -s && tape -- test/**/*.js | tap-spec",
-    "unit-test": "node && tape -- test/**/*.js | tap-spec",
+    "test": "npm run jshint -s && tape -- test/**/*-test.js | tap-spec",
+    "unit-test": "node && tape -- test/**/*-test.js | tap-spec",
     "jshint-pre-commit": "jshint --verbose $(git diff --cached --name-only | grep '\\.js$')",
     "jshint": "jshint --verbose $(git ls-files | grep '\\.js$')",
     "cover": "istanbul cover --report none --print detail tape -- test/**/*.js",
