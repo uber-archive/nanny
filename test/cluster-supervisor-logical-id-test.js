@@ -1,3 +1,5 @@
+'use strict';
+
 var ClusterSupervisor = require('../cluster-supervisor.js');
 var path = require('path');
 var test = require('tape');
@@ -16,7 +18,7 @@ test('init ClusterSupervisor with logical IDs', function (assert) {
     setTimeout(function() {
         supervisor.stop();
 
-        assert.strictEqual(supervisor.countWorkers(), 0);
+        assert.strictEqual(supervisor.countRunningWorkers(), 0);
 
         setTimeout(function() {
             supervisor.stop();

@@ -1,4 +1,11 @@
-var cluster = require('cluster');
+'use strict';
+
+// A single cluster supervisor instance oversees a collection of worker
+// supervisors and load balancers.
+// The worker supervisors ensure that workers remain up.
+// The load balancers distribute connections to workers that are listening on a
+// shared port.
+
 var debuglog = require('debuglog');
 var os = require('os');
 
@@ -15,23 +22,33 @@ function ClusterSupervisor(options) {
     this.respawnWorkerCount = options.respawnWorkerCount !== undefined ?
         options.respawnWorkerCount :
         -1;
-    this.initMaster = options.initMaster;
+    this.initMaster = options.initMaster; // Post-initialization hook, receives this, but no arguments
     this.numCPUs = options.numCPUs || os.cpus().length;
     this.logicalIds = options.logicalIds || [];
-    this.exec = options.exec;
-    this.args = options.args || [];
+    this.exec = options.exec; // Worker module path TODO rename modulePath
+    this.args = options.args || []; // Worker arguments TODO rename argv or something
+    this.execPath = options.execPath; // alternate Node.js exec path
+    this.execArgs = options.execArgv; // alternate Node.js arguments
     this.logger = options.logger || {
         error: logger,
         warn: logger,
         info: logger,
         debug: logger
     };
+    this.pulse = options.pulse; // The period of heart beats expected from workers
+
+    this.workers = [];
+    this._runningWorkerCount = 0;
+    this.loadBalancers = {}; // port to LoadBalancer
 
     if (!options.exec) throw new Error('missing exec');
     if (Array.isArray(options.logicalIds) && options.logicalIds.length !== this.numCPUs) {
         throw new Error('mismatching logicalIds length and numCPUs');
     }
 }
+
+ClusterSupervisor.prototype.LoadBalancer = require('./round-robin-load-balancer');
+ClusterSupervisor.prototype.WorkerSupervisor = require('./worker-supervisor');
 
 ClusterSupervisor.prototype.start = function start () {
     this._initMaster();
@@ -45,26 +62,13 @@ ClusterSupervisor.prototype._initMaster = function _initMaster () {
         numCPUs: this.numCPUs
     });
 
-    cluster.setupMaster({
-        exec: this.exec,
-        args: this.args
-    });
-
     for(var i = 0; i < this.numCPUs; i++) {
         var logicalId;
-        logicalId = this.logicalIds[i];
-        this._spawnWorker(logicalId);
+        logicalId = this.logicalIds[i] || i;
+        var worker = this.WorkerSupervisor(this, logicalId);
+        worker.start();
+        this.workers.push(worker);
     }
-
-    cluster.on('fork', function (worker) {
-        this.logger.debug('cluster fork', {
-            id: worker.id
-        });
-    }.bind(this));
-
-    cluster.on('setup', function () {
-        this.logger.debug('cluster setup');
-    }.bind(this));
 
     TERM_SIGNALS.forEach(function (signal) {
         process.on(signal, function () {
@@ -73,6 +77,7 @@ ClusterSupervisor.prototype._initMaster = function _initMaster () {
             });
 
             self.stop();
+            // TODO exit only when all workers have verifiably shut down
             process.exit();
         }.bind(this));
     }.bind(this));
@@ -81,86 +86,64 @@ ClusterSupervisor.prototype._initMaster = function _initMaster () {
 
 };
 
-ClusterSupervisor.prototype.stop = function () {
+ClusterSupervisor.prototype.stop = function (callback) {
     this.stopAllWorkers();
+    Object.keys(this.loadBalancers).forEach(function (port) {
+        var listener = this.loadBalancers[port];
+        listener.stop();
+    }, this);
     // ... in anticipation of other resources that may need to be cleaned up
     // before the supervisor can exit gracefully.
+    if (callback) {
+        process.nextTick(callback);
+    }
 };
 
 ClusterSupervisor.prototype.stopAllWorkers = function () {
-    Object.keys(cluster.workers).forEach(function (id) {
-        // TODO hook into worker state machine
-        cluster.workers[id].kill("SIGTERM");
+    this.workers.forEach(function (worker) {
+        worker.stop();
     });
 };
 
-// TODO forceStopAllWorkers
-// TODO dumpAllWorkers
-// TODO reloadAllWorkers
-
 ClusterSupervisor.prototype.countWorkers = function () {
-    return Object.keys(cluster.workers).length;
+    return this.workers.length;
 };
 
-ClusterSupervisor.prototype.getWorker = function (id) {
-    return cluster.workers[id];
+// This returns the number of workers that "should" be running and does not
+// reflect whether they have shut down yet.
+ClusterSupervisor.prototype.countRunningWorkers = function () {
+    return this._runningWorkerCount;
 };
 
 ClusterSupervisor.prototype.forEachWorker = function (callback, thisp) {
-    Object.keys(cluster.workers).forEach(function (id) {
-        callback.call(thisp, cluster.workers[id], id, this);
+    this.workers.forEach(function (worker, index) {
+        callback.call(thisp, worker, index, this);
     }, this);
 };
 
-ClusterSupervisor.prototype._spawnWorker = function _spawnWorker (logicalId) {
-    var worker = cluster.fork({
-        PROCESS_LOGICAL_ID: logicalId
-    });
-
-    this.logger.debug('spawning worker', {
-        title: process.title
-    });
-
-    worker.on('exit', function (code, signal) {
-        this.logger.debug('spawned worker exit', {
-            pid: worker.process.pid,
-            id: worker.id,
-            code: code,
-            signal: signal
-        });
-
-        if (this.respawnWorkerCount > 0 || this.respawnWorkerCount === -1) {
-            if (this.respawnWorkerCount > 0) this.respawnWorkerCount--;
-
-            this._spawnWorker(logicalId);
+ClusterSupervisor.prototype._addWorkerSupervisorToLoadBalancer = function (workerSupervisor, port, address, backlog) {
+    var loadBalancer = this.loadBalancers[port];
+    if (!loadBalancer) {
+        loadBalancer = new this.LoadBalancer(this, port, address, backlog);
+        this.loadBalancers[port] = loadBalancer;
+    } else {
+        // Verify that all workers are listening with the same parameters for a
+        // given port or pipename.
+        if (loadBalancer.address !== address) {
+            this.logger.warn('worker listening on same port but requested alternate address', {
+                id: workerSupervisor.id,
+                port: port,
+                address: address
+            });
+        } else if (loadBalancer.backlog !== backlog) {
+            this.logger.warn('worker listening on same port but requested alternate backlog', {
+                id: workerSupervisor.id,
+                port: port,
+                backlog: backlog
+            });
         }
-    }.bind(this));
-
-    worker.on('disconnect', function () {
-        this.logger.debug('spawned worker disconnected', {
-            id: worker.id
-        });
-    }.bind(this));
-
-    worker.on('listening', function (address) {
-        this.logger.debug('spawned worker listening', {
-            id: worker.id,
-            address: address
-        });
-    }.bind(this));
-
-    worker.on('online', function () {
-        this.logger.debug('spawned worker is online', {
-            id: worker.id
-        });
-    }.bind(this));
-
-    worker.on('message', function (message) {
-        this.logger.debug('spawned worker got message', {
-            id: worker.id,
-            message: message
-        });
-    }.bind(this));
+    }
+    loadBalancer.addWorkerSupervisor(workerSupervisor);
 };
 
 module.exports = ClusterSupervisor;

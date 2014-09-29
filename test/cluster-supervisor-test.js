@@ -1,3 +1,5 @@
+'use strict';
+
 var ClusterSupervisor = require('../cluster-supervisor.js');
 var path = require('path');
 var test = require('tape');
