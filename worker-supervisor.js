@@ -4,8 +4,10 @@
 // running, restarting the child process if necessary, and forwarding requests
 // for network connections to the appropriate load balancer.
 
+var events = require('events');
 var childProcess = require('child_process');
 var path = require('path');
+var util = require('util');
 
 function WorkerSupervisor(supervisor, id) {
     if (!(this instanceof WorkerSupervisor)) {
@@ -16,7 +18,13 @@ function WorkerSupervisor(supervisor, id) {
     this.id = id;
     this.process = null;
     this.listeners = {};
+
+    // Pre-bind event handlers
+    this.handleMessage = this.handleMessage.bind(this);
+    this.handleExit = this.handleExit.bind(this);
 }
+
+util.inherits(WorkerSupervisor, events.EventEmitter);
 
 WorkerSupervisor.prototype.start = function () {
 
@@ -42,25 +50,10 @@ WorkerSupervisor.prototype.start = function () {
 
     worker.send({cmd: 'CLUSTER_START', modulePath: workerPath, pulse: workerPulse});
 
-    worker.on('exit', function (code, signal) {
-        this.logger.debug('spawned worker exit', {
-            pid: this.process.pid,
-            id: this.id,
-            code: code,
-            signal: signal
-        });
+    worker.on('exit', this.handleExit);
+    worker.on('message', this.handleMessage);
 
-        if (this.respawnWorkerCount > 0 || this.respawnWorkerCount === -1) {
-            if (this.respawnWorkerCount > 0) this.respawnWorkerCount--;
-            this._spawnWorker(this.id);
-        }
-
-    }.bind(this));
-
-    worker.on('message', function (message) {
-        this.handleMessage(message);
-    }.bind(this));
-
+    // TODO the following can go away when the worker state machine lands
     this.supervisor._runningWorkerCount++;
 };
 
@@ -68,19 +61,42 @@ WorkerSupervisor.prototype.stop = function () {
     // TODO integrate with worker state machine
     this.process.kill('SIGTERM');
 
+    // TODO the following can go away when the worker state machine lands
     this.supervisor._runningWorkerCount--;
 };
 
+WorkerSupervisor.prototype.handleExit = function (code, signal) {
+    this.logger.debug('spawned worker exit', {
+        pid: this.process.pid,
+        id: this.id,
+        code: code,
+        signal: signal
+    });
+
+    if (this.respawnWorkerCount > 0 || this.respawnWorkerCount === -1) {
+        if (this.respawnWorkerCount > 0) this.respawnWorkerCount--;
+        this._spawnWorker(this.id);
+    }
+};
+
 WorkerSupervisor.prototype.handleMessage = function (message) {
+    // TODO This produces a lot of noise. Perhaps we need another log name.
     //this.logger.debug('spawned worker got message', {
     //    id: this.id,
     //    message: message
     //});
     if (message.cmd === 'CLUSTER_LISTEN') {
-        this.handleListenRequest(message.port, message.address, message.backlog);
+        this.emit('listen', message.port, message.address, message.backlog, this);
     }
+    // TODO handle CLUSTER_PULSE and record worker health
     // TODO handle CLUSTER_REJECT if a connection was sent to the worker but
     // rejected.
+    // TODO handle CLUSTER_CLOSE when a worker closes a server and needs to be
+    // removed from the load balancer rotation.
+    // TODO handle CLUSTER_RETURN_ERROR when an error is sent to a server on a
+    // worker but that server has closed.
+    // TODO handle CLUSTER_NOT_LISTENING when a worker has stopped listening
+    // for connections before it receives its listening message
 };
 
 WorkerSupervisor.prototype.handleConnection = function (port, connection) {
@@ -95,28 +111,30 @@ WorkerSupervisor.prototype.handleConnection = function (port, connection) {
 };
 
 // Called by the load balancer to inform a Server in the Worker process that it
-// has or has not received an address.
-WorkerSupervisor.prototype.sendAddress = function (error, port, address) {
-    if (error) {
-        this.logger.error('informing worker that listening failed', {
-            error: error.message
-        });
-    } else {
-        this.logger.debug('informing worker that listening succeeded', {
-            port: port,
-            address: address
-        });
-    }
+// has received an address.
+WorkerSupervisor.prototype.sendAddress = function (port, address) {
+    this.logger.debug('sending worker\'s server its listening address', {
+        // TODO identify the exact server instance that should receive this
+        // address so a thrashing worker doesn't get confused.
+        port: port,
+        address: address
+    });
     this.process.send({
         cmd: 'CLUSTER_LISTENING',
-        error: error,
         port: port,
         address: address
     });
 };
 
-WorkerSupervisor.prototype.handleListenRequest = function (port, address, backlog) {
-    this.supervisor._addWorkerSupervisorToLoadBalancer(this, port, address, backlog);
+// Called by the load balancer if its server emits an error, broadcasting that
+// error to all attached servers.
+WorkerSupervisor.prototype.sendError = function (port, error) {
+    // TODO handle aberrant case where error is not actually an Error object.
+    this.process.send({
+        cmd: 'CLUSTER_ERROR',
+        port: port,
+        message: error.message
+    });
 };
 
 module.exports = WorkerSupervisor;

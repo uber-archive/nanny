@@ -15,7 +15,7 @@
   "regexp": false,
   "undef": true,
   "unused": true,
-  "node": true,
+  "globalstrict": true,
   "strict": true,
   "trailing": true,
   "noempty": true,

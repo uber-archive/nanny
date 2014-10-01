@@ -1,45 +1,48 @@
 'use strict';
 
 var net = require('net');
+var events = require('events');
+var util = require('util');
 
+// TODO server state machine, standby, starting, running, stopping
 // TODO Close listener when there are no pending connections.
 // TODO or queue incoming connections when there are no workers listening.
 // TODO Redistribute connections that were rejected by a worker.
 // TODO Remove a worker from rotation if it rejects a connection.
+// TODO Refactor the arguments into options
 
-function RoundRobinLoadBalancer(clusterSupervisor, port, address, backlog) {
+function RoundRobinLoadBalancer(logger, port, address, backlog) {
     if (!(this instanceof RoundRobinLoadBalancer)) {
-        return new RoundRobinLoadBalancer(clusterSupervisor, port);
+        return new RoundRobinLoadBalancer(logger, port, address, backlog);
     }
-    this.clusterSupervisor = clusterSupervisor;
+    this.logger = logger;
     this.port = port;
-    this.logger = clusterSupervisor.logger;
     var server = net.createServer();
     this.server = server;
-    this.address = address;
-    this.backlog = backlog;
+    this.requestedAddress = address;
+    this.requestedBacklog = backlog;
     this.ring = this.Ring();
 
     // Workers that are awaiting a 'listening' or 'error' message.
-    // These three properties, the handleListening method, and the handleError
-    // method, constitute a hand-rolled promise for a listening address.
     this.waitingWorkers = [];
-    this.address = null;
-    this.error = null;
 
     this.handleListening = this.handleListening.bind(this);
     this.handleConnection = this.handleConnection.bind(this);
     this.handleError = this.handleError.bind(this);
+    this.handleClose = this.handleClose.bind(this);
 
     server.on('listening', this.handleListening);
     server.on('connection', this.handleConnection);
     server.on('error', this.handleError);
+    server.on('close', this.handleClose);
 
     this.logger.debug('listening for connections on behalf of workers', {
         port: this.port
     });
     this.server.listen(this.port, this.address, this.backlog);
 }
+
+util.inherits(RoundRobinLoadBalancer, events.EventEmitter);
 
 RoundRobinLoadBalancer.prototype.Ring = Array; // TODO require('./_ring');
 
@@ -53,7 +56,7 @@ RoundRobinLoadBalancer.prototype.addWorkerSupervisor = function (workerSuperviso
     if (this.waitingWorkers) {
         this.waitingWorkers.push(workerSupervisor);
     } else {
-        workerSupervisor.sendAddress(this.error, this.port, this.address);
+        workerSupervisor.sendAddress(this.port, this.address);
     }
 };
 
@@ -65,24 +68,21 @@ RoundRobinLoadBalancer.prototype.handleListening = function () {
     });
     if (this.waitingWorkers) {
         this.waitingWorkers.forEach(function (workerSupervisor) {
-            workerSupervisor.sendAddress(this.error, this.port, this.address);
+            workerSupervisor.sendAddress(this.port, this.address);
         }, this);
         this.waitingWorkers = null;
     }
 };
 
 RoundRobinLoadBalancer.prototype.handleError = function (error) {
-    this.error = error;
-    this.logger.debug('server failed to start on behalf of workers', {
+    this.logger.debug('broadcasting server error to workers', {
         port: this.port,
         error: error
     });
-    if (this.waitingWorkers) {
-        this.waitingWorkers.forEach(function (workerSupervisor) {
-            workerSupervisor.sendAddress(this.error, this.port, this.address);
-        }, this);
-        this.waitingWorkers = null;
-    }
+    this.ring.forEach(function (workerSupervisor) {
+        workerSupervisor.sendError(this.port, error);
+    }, this);
+    this.stop();
 };
 
 RoundRobinLoadBalancer.prototype.handleConnection = function (connection) {
@@ -94,8 +94,19 @@ RoundRobinLoadBalancer.prototype.handleConnection = function (connection) {
     workerSupervisor.handleConnection(this.port, connection);
 };
 
+RoundRobinLoadBalancer.prototype.handleClose = function () {
+    this.logger.debug('shared server closed', {
+        port: this.port
+    });
+    this.emit('close', this);
+};
+
 RoundRobinLoadBalancer.prototype.stop = function () {
+    this.logger.debug('shared server stop requested', {
+        port: this.port
+    });
     this.server.close();
+    this.emit('stop', this);
 };
 
 module.exports = RoundRobinLoadBalancer;
