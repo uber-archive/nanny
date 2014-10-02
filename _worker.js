@@ -3,7 +3,6 @@
 // TODO the supervisor and client should agree on an identifier for every
 // server so connections and errors go to the correct instance.
 // TODO graceful shutdown on uncaught exception, exit, etc
-// TODO manage _connections on servers
 
 // This module duck-punches the Node.js `net` module, replacing its `Server`,
 // such that we can intercept all requests to start and stop servers, forward
@@ -66,7 +65,7 @@ function handleStart(modulePath, givenPulse) {
 function handleAccept(port, handle) {
     var server = servers[port];
     if (server) {
-        server.emit('connection', handle);
+        server._accept(handle);
     } else {
         // Return to sender if the server no longer exists.
         // This might occur if a connection was sent from the cluster to the
@@ -185,6 +184,8 @@ function Server(/* [ options, ] listener */) {
             self.on('connection', arguments[1]);
         }
     }
+
+    this._connections = [];
 
     this.allowHalfOpen = options.allowHalfOpen || false;
 }
@@ -310,9 +311,36 @@ Server.prototype.close = function (callback) {
     this.emit('close');
 };
 
-// TODO Server.prototype.getConnections
-// TODO Server.prototype.ref
-// TODO Server.prototype.unref
+Server.prototype._accept = function (connection) {
+    var self = this;
+    function onend() {
+        var index = self._connections.indexOf(connection);
+        if (index >= 0) {
+            self._connections.splice(index, 1);
+        }
+    }
+    connection.once('end', onend);
+    this._connections.push(connection);
+    this.emit('connection', connection);
+};
+
+Server.prototype.getConnections = function (cb) {
+    function end(err, connections) {
+        process.nextTick(function () {
+            cb(null, connections);
+        });
+    }
+
+    end(null, this._connections);
+};
+
+// There is not much we can do about ref and unref. The underlying handle is on
+// the cluster and will be retained indefinitely.
+// The IPC channel retains this process.
+
+Server.prototype.unref = function () { };
+
+Server.prototype.ref = function () { };
 
 // We receive an address property from the cluster supervisor when it confirms
 // that we are listening on the requested interface.
