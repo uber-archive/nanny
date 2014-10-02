@@ -93,6 +93,18 @@ ClusterSupervisor.prototype.countWorkers = function () {
     return this.workers.length;
 };
 
+ClusterSupervisor.prototype.countActiveWorkers = function () {
+    return this.inspect().workers.filter(function (worker) {
+        return worker.state !== 'standby';
+    }).length;
+};
+
+ClusterSupervisor.prototype.countActiveLoadBalancers = function () {
+    return this.inspect().loadBalancers.filter(function (loadBalancer) {
+        return loadBalancer.state !== 'standby';
+    }).length;
+};
+
 ClusterSupervisor.prototype.countRunningWorkers = function () {
     return this.inspect().workers.filter(function (worker) {
         return worker.state === 'running';
@@ -268,7 +280,10 @@ ClusterSupervisor.prototype.handleLoadBalancerStandby = function (loadBalancer) 
 // Called when either a worker or load balancer enters stand-by mode. When both
 // populations are entirely on standby, the cluster is at standby.
 ClusterSupervisor.prototype.checkForFullStop = function () {
-    if (this.countRunningWorkers() === 0 && this.countRunningLoadBalancers() === 0) {
+    var runningWorkerCount = this.countActiveWorkers();
+    var runningLoadBalancerCount = this.countActiveLoadBalancers();
+    if (runningWorkerCount === 0 && runningLoadBalancerCount === 0) {
+        this.logger.debug('cluster now standing by');
         this.emit('standby');
     }
 };
