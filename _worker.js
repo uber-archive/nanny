@@ -1,9 +1,9 @@
 'use strict';
 
-// TODO ensure that we call close() on a server if we emit an 'error'
 // TODO the supervisor and client should agree on an identifier for every
-// server so connections and errors go to the correct instance
+// server so connections and errors go to the correct instance.
 // TODO graceful shutdown on uncaught exception, exit, etc
+// TODO manage _connections on servers
 
 // This module duck-punches the Node.js `net` module, replacing its `Server`,
 // such that we can intercept all requests to start and stop servers, forward
@@ -15,6 +15,8 @@
 // the various levels of indirection, but Node.js does not expose a way to
 // override the underlying `net` module.
 // We may return to explore this design direction in another iteration.
+
+// Invariant: we must close a server before emitting an error.
 
 var net = require('net');
 var events = require('events');
@@ -115,6 +117,7 @@ function handleError(port, message) {
     } else {
         process.send({
             cmd: 'CLUSTER_RETURN_ERROR',
+            port: port,
             message: message
         });
     }
@@ -292,7 +295,10 @@ function listen(self, address, port, addressType, backlog, exclusive) {
 }
 /*jshint +W072 */
 
-Server.prototype.close = function () {
+Server.prototype.close = function (callback) {
+    if (callback) {
+        this.once('close', callback);
+    }
     process.send({
         cmd: 'CLUSTER_CLOSE',
         port: this._port
@@ -301,6 +307,7 @@ Server.prototype.close = function () {
     // instance.
     delete servers[this._port];
     // TODO emit 'close' event when all open connections are closed
+    this.emit('close');
 };
 
 // TODO Server.prototype.getConnections

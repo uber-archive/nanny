@@ -8,6 +8,8 @@
 
 var debuglog = require('debuglog');
 var os = require('os');
+var events = require('events');
+var util = require('util');
 var WorkerSupervisor = require('./worker-supervisor');
 var LoadBalancer = require('./round-robin-load-balancer');
 
@@ -38,9 +40,10 @@ function ClusterSupervisor(options) {
         debug: logger
     };
     this.pulse = options.pulse; // The period of heart beats expected from workers
+    this.patience = options.patience; // The period between requesting a stop and automatically forcing a stop
+    this.autoRestartDelay = options.autoRestartDelay; // The period between a worker death and starting it up again
 
     this.workers = [];
-    this._runningWorkerCount = 0;
     this.loadBalancers = {}; // port to LoadBalancer
 
     if (!options.exec) throw new Error('missing exec');
@@ -50,12 +53,20 @@ function ClusterSupervisor(options) {
 
     // Event handlers bound to this instance
     this.handleWorkerListenRequest = this.handleWorkerListenRequest.bind(this);
-    this.handleLoadBalancerClose = this.handleLoadBalancerClose.bind(this);
-    this.handleLoadBalancerStop = this.handleLoadBalancerStop.bind(this);
 }
+
+util.inherits(ClusterSupervisor, events.EventEmitter);
 
 ClusterSupervisor.prototype.LoadBalancer = LoadBalancer;
 ClusterSupervisor.prototype.WorkerSupervisor = WorkerSupervisor;
+
+ClusterSupervisor.prototype.inspect = function () {
+    return {
+        workers: this.workers.map(function (worker) {
+            return worker.inspect();
+        })
+    };
+};
 
 ClusterSupervisor.prototype.start = function start () {
     this._initMaster();
@@ -80,15 +91,13 @@ ClusterSupervisor.prototype._initMaster = function _initMaster () {
             this.logger.info('cluster master received signal...killing workers', {
                 signal: signal
             });
-
-            self.stop();
-            // TODO exit only when all workers have verifiably shut down
-            process.exit();
+            self.stop(function () {
+                process.exit();
+            });
         }.bind(this));
     }.bind(this));
 
     if (this.initMaster) this.initMaster();
-
 };
 
 ClusterSupervisor.prototype._spawnWorker = function (logicalId) {
@@ -99,11 +108,13 @@ ClusterSupervisor.prototype._spawnWorker = function (logicalId) {
 };
 
 ClusterSupervisor.prototype.stop = function (callback) {
-    this.stopAllWorkers();
-    Object.keys(this.loadBalancers).forEach(function (port) {
-        var listener = this.loadBalancers[port];
-        listener.stop();
+    this.forEachWorker(function (worker) {
+        worker.stop();
+    });
+    this.forEachLoadBalancer(function (loadBalancer) {
+        loadBalancer.stop();
     }, this);
+    // TODO wait for all workers to stop before dispatching callback
     // ... in anticipation of other resources that may need to be cleaned up
     // before the supervisor can exit gracefully.
     if (callback) {
@@ -111,26 +122,26 @@ ClusterSupervisor.prototype.stop = function (callback) {
     }
 };
 
-ClusterSupervisor.prototype.stopAllWorkers = function () {
-    this.workers.forEach(function (worker) {
-        worker.stop();
-    });
-};
-
 ClusterSupervisor.prototype.countWorkers = function () {
     return this.workers.length;
 };
 
-// This returns the number of workers that "should" be running and does not
-// reflect whether they have shut down yet.
 ClusterSupervisor.prototype.countRunningWorkers = function () {
-    // TODO filter over workers when worker state is inspectable
-    return this._runningWorkerCount;
+    return this.inspect().workers.filter(function (worker) {
+        return worker.state === 'running';
+    }).length;
 };
 
 ClusterSupervisor.prototype.forEachWorker = function (callback, thisp) {
     this.workers.forEach(function (worker, index) {
         callback.call(thisp, worker, index, this);
+    }, this);
+};
+
+ClusterSupervisor.prototype.forEachLoadBalancer = function (callback, thisp) {
+    Object.keys(this.loadBalancers).forEach(function (port) {
+        var loadBalancer = this.loadBalancers[port];
+        callback.call(thisp, loadBalancer, port, this);
     }, this);
 };
 
@@ -169,21 +180,7 @@ ClusterSupervisor.prototype.handleWorkerListenRequest = function (port, address,
 
 ClusterSupervisor.prototype._createLoadBalancer = function (port, address, backlog) {
     var loadBalancer = this.LoadBalancer(this.logger, port, address, backlog);
-    loadBalancer.on('stop', this.handleLoadBalancerStop);
-    loadBalancer.on('close', this.handleLoadBalancerClose);
     return loadBalancer;
-};
-
-ClusterSupervisor.prototype.handleLoadBalancerStop = function (/*loadBalancer*/) {
-    // TODO tear down this load balancer and allow another to replace it upon
-    // the next listen request.
-    // TODO advertise that the load balancer has been stopped so it can be
-    // removed from a cluster supervisor table
-};
-
-ClusterSupervisor.prototype.handleLoadBalancerClose = function (/*loadBalancer*/) {
-    // TODO figure out what to do here
-    // Closing may occur with or without a stop
 };
 
 module.exports = ClusterSupervisor;
