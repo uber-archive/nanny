@@ -72,7 +72,7 @@ function handleAccept(port, handle) {
         // This might occur if a connection was sent from the cluster to the
         // worker before the cluster received a notification from the worker
         // that it had closed the corresponding server.
-        process.send({cmd: 'CLUSTER_REJECT', port: port}, handle);
+        process.send({cmd: 'CLUSTER_BOUNCE', port: port}, handle);
     }
 }
 

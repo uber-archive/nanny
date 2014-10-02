@@ -9,15 +9,16 @@ var childProcess = require('child_process');
 var path = require('path');
 var util = require('util');
 
-function WorkerSupervisor(supervisor, id) {
+function WorkerSupervisor(spec) {
     if (!(this instanceof WorkerSupervisor)) {
-        return new WorkerSupervisor(supervisor, id);
+        return new WorkerSupervisor(spec);
     }
-    this.supervisor = supervisor;
-    this.logger = supervisor.logger;
-    this.id = id;
+    this.logger = spec.logger;
+    this.id = spec.id;
+    this.spec = spec;
+
     this.process = null;
-    this.listeners = {};
+    this.loadBalancers = {};
 
     // Pre-bind event handlers
     this.state = new Standby(this);
@@ -39,7 +40,7 @@ WorkerSupervisor.prototype.do = function (command, arg) {
     this.state = former.do(command, arg);
     if (this.state !== former) {
         this.logger.debug('worker state change', this.inspect());
-        this.emit('transition', this.state.name, former.name, this);
+        this.emit(this.state.name, this);
     }
 };
 
@@ -90,12 +91,34 @@ WorkerSupervisor.prototype.sendAddress = function (port, address) {
 // Called by the load balancer if its server emits an error, broadcasting that
 // error to all attached servers.
 WorkerSupervisor.prototype.sendError = function (port, error) {
-    // TODO handle aberrant cases where error is not actually an Error object.
+    if (!(error instanceof Error)) {
+        throw new Error('Can\'t send error to worker. Must be an Error instance. Got: ' + error);
+    }
     this.process.send({
         cmd: 'CLUSTER_ERROR',
         port: port,
         message: error.message
     });
+};
+
+// The worker supervisor tracks the load balancers for which it is listening
+// and provides a public interface for managing this data, but the cluster
+// supervisor is responsible for coordinating the linkage between worker
+// supervisors and load balancers in response to events from both.
+
+WorkerSupervisor.prototype.addLoadBalancer = function (loadBalancer) {
+    this.loadBalancers[loadBalancer.port] = loadBalancer;
+};
+
+WorkerSupervisor.prototype.removeLoadBalancer = function (loadBalancer) {
+    delete this.loadBalancers[loadBalancer.port];
+};
+
+WorkerSupervisor.prototype.forEachLoadBalancer = function (callback, thisp) {
+    Object.keys(this.loadBalancers).forEach(function (port) {
+        var loadBalancer = this.loadBalancers[port];
+        callback.call(thisp, loadBalancer, port, this);
+    }, this);
 };
 
 // Thus begins the internals.
@@ -107,22 +130,24 @@ WorkerSupervisor.prototype.spawn = function () {
         throw new Error('Can\'t start with an existing child process');
     }
 
-    var supervisor = this.supervisor;
+    var spec = this.spec;
 
-    var workerArgs = supervisor.args || [];
+    // TODO inject --abort_on_uncaught_exception to instruct V8 to dump core if
+    // it hits an uncaught exception.
+    var workerArgs = spec.args || [];
     var workerEnv = {
         PROCESS_LOGICAL_ID: this.id
     };
     var workerOptions = {
-        cwd: supervisor.cwd,
+        cwd: spec.cwd,
         env: workerEnv,
-        encoding: supervisor.encoding,
-        execPath: supervisor.execPath,
-        execArgv: supervisor.execArgv,
-        silent: supervisor.silent,
+        encoding: spec.encoding,
+        execPath: spec.execPath,
+        execArgv: spec.execArgv,
+        silent: spec.silent,
     };
-    var workerPath = supervisor.exec; // TODO rename exec to workerPath
-    var workerPulse = supervisor.pulse;
+    var workerPath = spec.workerPath;
+    var workerPulse = spec.pulse;
     var worker = childProcess.fork(path.join(__dirname, '_worker'), workerArgs, workerOptions);
     this.process = worker;
 
@@ -160,8 +185,9 @@ WorkerSupervisor.prototype.kill = function (signal) {
 };
 
 // Internal method, called by a state when a child process is confirmed dead.
-WorkerSupervisor.prototype.handleStop = function () {
+WorkerSupervisor.prototype.fullStop = function () {
     this.process = null;
+    this.emit('stop', this);
 };
 
 // Internal method, called if a child process emits an error.
@@ -200,7 +226,7 @@ WorkerSupervisor.prototype.handleExit = function (code, signal) {
 
 // Internal method, called if a child process sends a message on its IPC channel.
 // This is how we communicate with the networking thunk in _worker.js.
-WorkerSupervisor.prototype.handleMessage = function (message) {
+WorkerSupervisor.prototype.handleMessage = function (message, handle) {
     // TODO This produces a lot of noise. Perhaps we need another log name.
     //this.logger.debug('spawned worker got message', {
     //    id: this.id,
@@ -211,6 +237,8 @@ WorkerSupervisor.prototype.handleMessage = function (message) {
     }
     if (message.cmd === 'CLUSTER_LISTEN') {
         this.emit('listen', message.port, message.address, message.backlog, this);
+    } else if (message.cmd === 'CLUSTER_CLOSE') {
+        this.emit('close', message.port, this);
     } else if (message.cmd === 'CLUSTER_PULSE') {
         this.handlePulse(message);
     } else if (message.cmd === 'CLUSTER_RETURN_ERROR') {
@@ -224,17 +252,14 @@ WorkerSupervisor.prototype.handleMessage = function (message) {
             id: this.id,
             port: this.port
         });
-    } else if (message.cmd === 'CLUSTER_RETURN_ERROR') {
-        this.logger.debug('worker server closed before it could receive an error event from the cluster', {
+    } else if (message.cmd === 'CLUSTER_BOUNCE') {
+        this.logger.debug('worker server closed before it could accept a connection - redistributing', {
             id: this.id,
             port: this.port
         });
-    // TODO handle CLUSTER_REJECT if a connection was sent to the worker but
-    // rejected. This should return the connection to the load balancer.
-    //} else if (message.cmd === 'CLUSTER_REJECT') {
-    // TODO handle CLUSTER_CLOSE when a worker closes a server and needs to be
-    // removed from the load balancer rotation.
-    //} else if (message.cmd === 'CLUSTER_CLOSE') {
+        // Inform the cluster supervisor that this connection bounced so it can
+        // be returned to distribution.
+        this.emit('bounce', message.port, handle, this);
     } else {
         this.logger.debug('spawned worker got message', {
             id: this.id,
@@ -261,6 +286,7 @@ WorkerSupervisor.prototype.handlePulse = function (message) {
         load: message.load,
         memory: message.memoryUsage
     };
+    this.emit('health', this.health);
 };
 
 module.exports = WorkerSupervisor;
@@ -286,9 +312,9 @@ module.exports = WorkerSupervisor;
 function Standby(worker, startDelay) {
     this.worker = worker;
     this.startDelayHandle = null;
-    this.startAt = null;
+    this.startingAt = null;
     if (startDelay !== void 0) {
-        this.startAt = Date.now() + startDelay;
+        this.startingAt = Date.now() + startDelay;
         setTimeout(function () {
             console.log("START");
             worker.start();
@@ -299,7 +325,11 @@ function Standby(worker, startDelay) {
 Standby.prototype.name = 'standby';
 
 Standby.prototype.inspect = function () {
-    return {state: 'standby', id: this.worker.id, timeToStart: this.startAt - Date.now()};
+    if (this.startingAt !== null) {
+        return {state: 'standby', id: this.worker.id, startingAt: this.startingAt, ets: this.startingAt - Date.now()};
+    } else {
+        return {state: 'standby', id: this.worker.id, startingAt: this.startingAt};
+    }
 };
 
 Standby.prototype.cancelStart = function () {
@@ -371,13 +401,13 @@ Running.prototype.do = function (command) {
     } else if (command === 'handleStop') {
         // This path can be reached from SIGHUP, an error on spinning up the
         // child process, or a plain old crash.
-        this.worker.handleStop();
+        this.worker.fullStop();
         var restartDelay; // An undefined restart delay implies remain in stand by indefinitely
         if (this.worker.respawnCount !== 0)  { // -1 and Infinity both imply indefinite restarts
             if (this.worker.respawnCount > 0) { // > 0 implies finite restarts
                 this.worker.respawnCount--;
             }
-            restartDelay = this.worker.supervisor.autoRestartDelay || 0;
+            restartDelay = this.worker.spec.restartDelay || 0;
         }
         return new Standby(this.worker, restartDelay);
     } else {
@@ -389,22 +419,22 @@ Running.prototype.do = function (command) {
 
 // ### Stopping state
 
-function Stopping(worker, patience) {
+function Stopping(worker, forceStopDelay) {
     var self = this;
     this.worker = worker;
     this.restart = false;
-    this.forcefulStopHandle = null;
+    this.forceStopHandle = null;
 
-    patience = patience || worker.supervisor.patience;
+    forceStopDelay = forceStopDelay || worker.spec.forceStopDelay;
 
-    if (patience) {
+    if (forceStopDelay) {
         // Schedule a forceful shutdown if graceful shutdown does not complete in a
         // timely fashion.
-        this.forcefulStopHandle = setTimeout(function () {
-            self.forcefulStopHandle = null;
+        this.forceStopHandle = setTimeout(function () {
+            self.forceStopHandle = null;
             worker.logger.debug('lost patience with stopping worker - forcing shutdown');
             worker.do('forceStop');
-        }, patience);
+        }, forceStopDelay);
     }
 }
 
@@ -415,8 +445,8 @@ Stopping.prototype.name = 'stopping';
 // Particularly, we cancel the forced-stop timer, and restart if that is
 // running is the target state.
 Stopping.prototype.followup = function (state) {
-    if (this.forcefulStopHandle) {
-        clearTimeout(this.forcefulStopHandle);
+    if (this.forceStopHandle) {
+        clearTimeout(this.forceStopHandle);
     }
     if (this.restart) {
         state = state.do('start');
@@ -458,7 +488,7 @@ Stopping.prototype.do = function (command) {
         this.worker.kill('SIGUSR1');
         return this.followup(new Running(this.worker, !!'debug'));
     } else if (command === 'handleStop') {
-        this.worker.handleStop();
+        this.worker.fullStop();
         return this.followup(new Standby(this.worker));
     } else {
         throw new Error('Assertion failed: Can\'t ' + command + ' while stopping');
