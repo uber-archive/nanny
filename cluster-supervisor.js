@@ -35,7 +35,7 @@ function ClusterSupervisor(spec) {
     this.exec = spec.exec; // Worker module path TODO rename modulePath
     this.args = spec.args || []; // Worker arguments TODO rename argv or something
     this.execPath = spec.execPath; // alternate Node.js exec path
-    this.execArgs = spec.execArgv; // alternate Node.js arguments
+    this.execArgv = spec.execArgv; // alternate Node.js arguments
     this.logger = spec.logger || {
         error: logger,
         warn: logger,
