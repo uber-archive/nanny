@@ -486,7 +486,12 @@ Running.prototype.dump = function () {
 };
 
 Running.prototype.reload = function () {
-    return this.do('stop').do('restart');
+    this.worker.kill('SIGHUP');
+    return this;
+};
+
+Running.prototype.restart = function () {
+    return this.stop().restart();
 };
 
 Running.prototype.debug = function () {
@@ -499,7 +504,7 @@ Running.prototype.handleStop = function () {
     // child process, or a plain old crash.
     this.worker.fullStop();
     this.clearUnhealthyTimeout();
-    return new Standby(this.worker).do('restart');
+    return new Standby(this.worker).restart();
 };
 
 Running.prototype.scheduleUnhealthyTimeout = function () {
@@ -536,8 +541,8 @@ function Stopping(worker, forceStopDelay) {
     var spec = worker.spec;
     var logger = worker.logger;
     this.worker = worker;
-    this.start = false;
-    this.restart = false;
+    this.thenStart = false;
+    this.thenRestart = false;
     this.at = Date.now();
     this.forceStopHandle = null;
     this.forceStopDelay = forceStopDelay || spec.forceStopDelay;
@@ -576,7 +581,7 @@ Stopping.prototype.inspect = function () {
 // to do so then.
 Stopping.prototype.start =
 Stopping.prototype.reload = function () {
-    this.start = true;
+    this.thenStart = true;
     return this;
 };
 
@@ -585,7 +590,7 @@ Stopping.prototype.reload = function () {
 // which entrains the maximum number of automatic restarts limit and
 // the automatic restart delay if configured.
 Stopping.prototype.restart = function () {
-    this.restart = true;
+    this.thenRestart = true;
     return this;
 };
 
@@ -593,7 +598,7 @@ Stopping.prototype.restart = function () {
 // reload while it was stopping.
 // Idempotent.
 Stopping.prototype.stop = function () {
-    this.restart = false;
+    this.thenRestart = false;
     return this;
 };
 
@@ -631,10 +636,10 @@ Stopping.prototype.followup = function (state) {
     if (this.forceStopHandle) {
         clearTimeout(this.forceStopHandle);
     }
-    if (this.start) {
-        state = state.do('start');
-    } else if (this.restart) {
-        state = state.do('restart');
+    if (this.thenStart) {
+        state = state.start();
+    } else if (this.thenRestart) {
+        state = state.restart();
     }
     return state;
 };
