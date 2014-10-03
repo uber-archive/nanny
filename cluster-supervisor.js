@@ -6,8 +6,6 @@
 // The load balancers distribute connections to workers that are listening on a
 // shared port.
 
-// TODO note that workers emit 'health'. We do not use this internally.
-
 var debuglog = require('debuglog');
 var os = require('os');
 var events = require('events');
@@ -66,10 +64,17 @@ util.inherits(ClusterSupervisor, events.EventEmitter);
 ClusterSupervisor.prototype.LoadBalancer = LoadBalancer;
 ClusterSupervisor.prototype.WorkerSupervisor = WorkerSupervisor;
 
+// ## Commands
+
+// The start command spins up all the workers and the workers in turn spin up
+// any needed load balancers.
 ClusterSupervisor.prototype.start = function start () {
     this._initMaster();
 };
 
+// The stop command shuts down all workers and load balancers.
+// The given callback will be informed when all systems return to a standby
+// state.
 ClusterSupervisor.prototype.stop = function (callback) {
     this.forEachWorker(function (worker) {
         worker.stop();
@@ -83,6 +88,21 @@ ClusterSupervisor.prototype.stop = function (callback) {
         // stopped.
         this.checkForFullStop();
     }
+};
+
+// ## Inspecting the cluster
+
+// Produces a snap shot of a data structure describing the state of the entire
+// cluster, including all open ports and all workers.
+ClusterSupervisor.prototype.inspect = function () {
+    return {
+        workers: this.workers.map(function (worker) {
+            return worker.inspect();
+        }),
+        loadBalancers: Object.keys(this.loadBalancers).map(function (port) {
+            return this.loadBalancers[port].inspect();
+        }, this)
+    };
 };
 
 ClusterSupervisor.prototype.countWorkers = function () {
@@ -126,22 +146,10 @@ ClusterSupervisor.prototype.forEachLoadBalancer = function (callback, thisp) {
     }, this);
 };
 
+// ## Internals
 
 // Thus ends the public interface of the ClusterSupervisor and begins its
 // internals.
-
-// Produces a snap shot of a data structure describing the state of the entire
-// cluster, including all open ports and all workers.
-ClusterSupervisor.prototype.inspect = function () {
-    return {
-        workers: this.workers.map(function (worker) {
-            return worker.inspect();
-        }),
-        loadBalancers: Object.keys(this.loadBalancers).map(function (port) {
-            return this.loadBalancers[port].inspect();
-        }, this)
-    };
-};
 
 ClusterSupervisor.prototype._initMaster = function _initMaster () {
     var self = this;

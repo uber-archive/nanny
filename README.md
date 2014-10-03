@@ -119,6 +119,11 @@ Node.js's own [child_process][].
 
 [child_process]: http://nodejs.org/api/child_process.html
 
+The cluster supervisor, worker supervisors, and load balancers, are all event emitters.
+
+The worker supervisor emits 'health' events when the child process reports its
+memory usage and load metrics.
+
 
 ## Docs
 

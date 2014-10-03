@@ -1,8 +1,8 @@
 'use strict';
 
-// TODO the supervisor and client should agree on an identifier for every
-// server so connections and errors go to the correct instance.
-// TODO graceful shutdown on uncaught exception, exit, etc
+/* TODO the supervisor and client should agree on an identifier for every
+ * server so connections and errors go to the correct instance. */
+/* TODO graceful shutdown on uncaught exception, exit, etc */
 
 // This module duck-punches the Node.js `net` module, replacing its `Server`,
 // such that we can intercept all requests to start and stop servers, forward
@@ -40,7 +40,6 @@ process.on('message', function (message, handle) {
     } else if (message.cmd === 'CLUSTER_ERROR') {
         handleError(message.port, message.message);
     }
-    // TODO implement CLUSTER_STOP, shut down health probe
 });
 
 // The supervisor will immediately send a request to start running a worker
@@ -53,13 +52,13 @@ function handleStart(modulePath, givenPulse) {
     }
     started = true;
 
-    // Start periodic health reports
+    // Start periodic health reports.
     pulse = givenPulse;
     if (pulse) {
         tick();
     }
 
-    // Start running the worker module
+    // Start running the worker module.
     require(modulePath);
 }
 
@@ -149,6 +148,7 @@ function tock() {
     tick();
 }
 
+// `hrtime` returns a [seconds, nanoseconds] tuple.
 function hrtimeAsMs(duple) {
     var seconds = duple[0];
     var nanoseconds = duple[1];
@@ -261,17 +261,18 @@ Server.prototype.listen = function () {
     }
 
     function listenAfterLookup(/*port, address, backlog, exclusive*/) {
-        // TODO We need to reason out whether the worker or cluster will issue
-        // the DNS request.
+        /* TODO We need to reason out whether the worker or cluster will issue the DNS request. */
         throw new Error('Can\'t listen on an interface and port in cluster mode yet');
-        // require('dns').lookup(address, function(err, ip, addressType) {
-        //     if (err) {
-        //         self.emit('error', err);
-        //     } else {
-        //         addressType = ip ? addressType : 4;
-        //         listen(self, ip, port, addressType, backlog, undefined, exclusive);
-        //     }
-        // });
+        /*
+        require('dns').lookup(address, function(err, ip, addressType) {
+            if (err) {
+                self.emit('error', err);
+            } else {
+                addressType = ip ? addressType : 4;
+                listen(self, ip, port, addressType, backlog, undefined, exclusive);
+            }
+        });
+        */
     }
 
     return self;
@@ -281,9 +282,9 @@ Server.prototype.listen = function () {
 // normalized above.
 /*jshint -W072 */
 function listen(self, address, port, addressType, backlog, exclusive) {
-    // TODO Index servers by a self-assigned identifier and the process
-    // identifier so messages intended for previous instances do not pass
-    // through.
+    /* TODO Index servers by a self-assigned identifier and the process
+     * identifier so messages intended for previous instances do not pass
+     * through. */
     servers[port] = self; // Index servers by port.
     self._port = port; // Remember the requested port for close.
     process.send({
@@ -308,7 +309,7 @@ Server.prototype.close = function (callback) {
     // This prevents any further connections from falling into this server
     // instance.
     delete servers[this._port];
-    // TODO emit 'close' event when all open connections are closed
+    /* TODO emit 'close' event when all open connections are closed. */
     this.emit('close');
 };
 

@@ -13,26 +13,51 @@ function WorkerSupervisor(spec) {
     if (!(this instanceof WorkerSupervisor)) {
         return new WorkerSupervisor(spec);
     }
+
     this.logger = spec.logger;
+
+    // The 'id' is a logical identifier issued by the cluster supervisor.
     this.id = spec.id;
     this.spec = spec;
-    this.createEnvironment = spec.createEnvironment || this.createEnvironment;
-    this.checkHealth = spec.checkHealth || this.checkHealth;
 
+    // This will be a Node.js child process object for the worker supervisor
+    // whenever in the 'running' or 'stopping' states.
     this.process = null;
+
+    // The worker supervisor tracks the affiliated load balancers but it is the
+    // responsibility of the cluster supervisor to maintain this index in
+    // response to events from both the load balancers and the worker
+    // supervisors, including when a worker starts and stops listening, albeit
+    // because the worker stops.
     this.loadBalancers = {};
 
-    this.health = null;
-
-    // Pre-bind event handlers
+    // The worker supervisor's behavior depends on its state, which we model as
+    // a separate object.
+    // Methods that cause a state transition return the new state object.
     this.state = new Standby(this);
 
+    // The worker supservisor may arrange for the worker to send back health
+    // metrics at regular intervals. These most recent, time stamped health
+    // check is always available for inspection.
+    this.health = null;
+
+    // The user can configure an alternate health check method.
+    // By default, the worker will always pass.
+    this.checkHealth = spec.checkHealth || this.checkHealth;
+
+    // The user can configure an alternate method for generating the worker
+    // process environment.
+    this.createEnvironment = spec.createEnvironment || this.createEnvironment;
+
+    // Pre-bind event handlers
     this.handleError = this.handleError.bind(this);
     this.handleExit = this.handleExit.bind(this);
     this.handleMessage = this.handleMessage.bind(this);
 }
 
 util.inherits(WorkerSupervisor, events.EventEmitter);
+
+// ### Commands
 
 // Advances the worker's state due to a command or message from the child
 // process itself.
@@ -76,12 +101,14 @@ WorkerSupervisor.prototype.inspect = function () { return this.state.inspect(); 
 // Thus ends the public interface of a worker supervisor.
 // Thus begins the interface exposed for load balancers.
 
+// ### For the load balancer
+
 // Called by the load balancer to inform a Server in the Worker process that it
 // has received an address.
 WorkerSupervisor.prototype.sendAddress = function (port, address) {
     this.logger.debug('sending worker\'s server its listening address', {
-        // TODO identify the exact server instance that should receive this
-        // address so a thrashing worker doesn't get confused.
+        /* TODO identify the exact server instance that should receive this
+         * address so a thrashing worker doesn't get confused. */
         port: port,
         address: address
     });
@@ -125,12 +152,11 @@ WorkerSupervisor.prototype.forEachLoadBalancer = function (callback, thisp) {
     }, this);
 };
 
-// Thus begins the internals.
+// ### Internals
 
+// Generates the process environment for each worker subprocess
 WorkerSupervisor.prototype.createEnvironment = function () {
-    return {
-        PROCESS_LOGICAL_ID: this.id
-    };
+    return { PROCESS_LOGICAL_ID: this.id };
 };
 
 // Internal method for starting the worker subprocess, initiated by a state.
@@ -142,8 +168,8 @@ WorkerSupervisor.prototype.spawn = function () {
 
     var spec = this.spec;
 
-    // TODO inject --abort_on_uncaught_exception to instruct V8 to dump core if
-    // it hits an uncaught exception.
+    /* TODO inject --abort_on_uncaught_exception to instruct V8 to dump core if
+     * it hits an uncaught exception. */
     var workerArgs = spec.args || [];
     var workerEnv = this.createEnvironment();
     var workerOptions = {
@@ -200,6 +226,8 @@ WorkerSupervisor.prototype.fullStop = function () {
     this.emit('stop', this);
 };
 
+// ### Event handlers
+
 // Internal method, called if a child process emits an error.
 WorkerSupervisor.prototype.handleError = function (error) {
     this.logger.debug('worker error', {
@@ -237,11 +265,13 @@ WorkerSupervisor.prototype.handleExit = function (code, signal) {
 // Internal method, called if a child process sends a message on its IPC channel.
 // This is how we communicate with the networking thunk in _worker.js.
 WorkerSupervisor.prototype.handleMessage = function (message, handle) {
-    // TODO This produces a lot of noise. Perhaps we need another log name.
-    //this.logger.debug('spawned worker got message', {
-    //    id: this.id,
-    //    message: message
-    //});
+    /* TODO This produces a lot of noise. Perhaps we need another log name. */
+    /*
+    this.logger.debug('spawned worker got message', {
+        id: this.id,
+        message: message
+    });
+    */
     if (typeof message !== 'object' || message === null) {
         return;
     }
@@ -290,8 +320,8 @@ WorkerSupervisor.prototype.handleConnection = function (port, connection) {
 };
 
 WorkerSupervisor.prototype.handlePulse = function (message) {
-    // TODO make use of event loop load and memory usage information to
-    // prioritize workers in scheduling
+    /* TODO make use of event loop load and memory usage information to
+     * prioritize workers in scheduling */
     this.health = {
         reportedAt: Date.now(),
         load: message.load,
@@ -450,12 +480,11 @@ Running.prototype.do = function (command) {
         return new Stopping(this.worker);
     } else if (command === 'dump') {
         this.worker.kill('SIGQUIT');
-        // More patience needed for core dumps
-        // TODO consider alternately spinning the worker off and producing a
-        // new one to prevent blocking a new worker creation.
-        // This may be necessary for preventing denial of service.
+        /* TODO consider alternately spinning the worker off and producing a
+         * new one to prevent blocking a new worker creation. This may be
+         * necessary for preventing denial of service. */
         this.clearUnhealthyTimeout();
-        return new Stopping(this.worker, Infinity);
+        return new Stopping(this.worker);
     } else if (command === 'restart') {
         return this.do('stop').do('restart');
     } else if (command === 'reload') {
@@ -618,9 +647,9 @@ Stopping.prototype.handleForceStopTimeout = function () {
     }
 };
 
+// The pulse is ignored until the process stopped.
+// In the standby state, pulses are unexpected and would throw a
+// non-existing method error.
 Stopping.prototype.handlePulse = function () {
-    // The pulse is ignored until the process stopped.
-    // In the standby state, pulses are unexpected and would throw a
-    // non-existing method error.
 };
 

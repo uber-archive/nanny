@@ -15,13 +15,14 @@
     "debuglog": "1.0.1"
   },
   "devDependencies": {
-    "tape": "^2.12.3",
-    "jshint": "^2.5.0",
-    "istanbul": "^0.2.7",
-    "tap-spec": "^0.1.8",
-    "pre-commit": "0.0.5",
     "coveralls": "^2.10.0",
-    "opn": "^0.1.2"
+    "docco": "^0.6.3",
+    "istanbul": "^0.2.7",
+    "jshint": "^2.5.0",
+    "opn": "^0.1.2",
+    "pre-commit": "0.0.5",
+    "tap-spec": "^0.1.8",
+    "tape": "^2.12.3"
   },
   "licenses": [
     {
@@ -36,6 +37,7 @@
     "jshint": "jshint --verbose $(git ls-files | grep '\\.js$')",
     "cover": "istanbul cover --report none --print detail tape -- test/**/*.js",
     "view-cover": "istanbul report html && opn ./coverage/index.html",
+    "docco": "docco cluster-supervisor.js worker-supervisor.js round-robin-load-balancer.js _worker.js",
     "travis": "npm run cover -s && istanbul report lcov && ((cat coverage/lcov.info | coveralls) || exit 0)"
   },
   "engine": {
