@@ -34,23 +34,16 @@ function ClusterSupervisor(spec) {
     this.logicalIds = spec.logicalIds || [];
     this.exec = spec.exec; // Worker module path TODO rename modulePath
     this.args = spec.args || []; // Worker arguments TODO rename argv or something
-    this.execPath = spec.execPath; // alternate Node.js exec path
-    this.execArgv = spec.execArgv; // alternate Node.js arguments
     this.logger = spec.logger || {
         error: logger,
         warn: logger,
         info: logger,
         debug: logger
     };
-    // The period of heart beats expected from workers:
-    this.pulse = spec.pulse;
-    // The period between requesting a stop and automatically forcing a stop:
-    this.workerForceStopDelay = spec.workerForceStopDelay;
-    // The period between a worker death and starting it up again:
-    this.workerRestartDelay = spec.workerRestartDelay;
     // The period between when a server errors out and stops and when we
     // attempt to restart it:
     this.serverRestartDelay = spec.serverRestartDelay;
+    this.spec = spec;
 
     this.workers = [];
     this.loadBalancers = {}; // port to LoadBalancer
@@ -86,6 +79,9 @@ ClusterSupervisor.prototype.stop = function (callback) {
     }, this);
     if (callback) {
         this.once('standby', callback);
+        // This will emit standby immediately if the cluster is already fully
+        // stopped.
+        this.checkForFullStop();
     }
 };
 
@@ -176,20 +172,24 @@ ClusterSupervisor.prototype._initMaster = function _initMaster () {
 };
 
 ClusterSupervisor.prototype._spawnWorker = function (logicalId) {
+    var spec = this.spec;
     var worker = this.WorkerSupervisor({
         id: logicalId,
         logger: this.logger,
         // Fork spec:
-        workerPath: this.exec, // TODO rename exec to workerPath
-        cwd: this.cwd,
-        encoding: this.encoding,
-        execPath: this.execPath,
-        execArgv: this.execArgv,
-        silent: this.silent,
+        workerPath: spec.exec, // TODO rename exec to workerPath
+        cwd: spec.cwd,
+        encoding: spec.encoding,
+        execPath: spec.execPath,
+        execArgv: spec.execArgv,
+        silent: spec.silent,
         // Supervisor spec:
-        pulse: this.pulse,
-        restartDelay: this.workerRestartDelay,
-        forceStopDelay: this.workerForceStopDelay
+        pulse: spec.pulse,
+        restartDelay: spec.workerRestartDelay,
+        forceStopDelay: spec.workerForceStopDelay,
+        createEnvironment: spec.createEnvironment,
+        checkHealth: spec.checkHealth,
+        unhealthyTimeout: spec.unhealthyTimeout
     });
     worker.on('listen', this.handleWorkerListenRequest);
     worker.on('close', this.handleWorkerCloseRequest);
@@ -283,7 +283,7 @@ ClusterSupervisor.prototype.checkForFullStop = function () {
     var runningWorkerCount = this.countActiveWorkers();
     var runningLoadBalancerCount = this.countActiveLoadBalancers();
     if (runningWorkerCount === 0 && runningLoadBalancerCount === 0) {
-        this.logger.debug('cluster now standing by');
+        this.logger.debug('cluster now standing by', {});
         this.emit('standby');
     }
 };

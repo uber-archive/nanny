@@ -40,6 +40,7 @@ process.on('message', function (message, handle) {
     } else if (message.cmd === 'CLUSTER_ERROR') {
         handleError(message.port, message.message);
     }
+    // TODO implement CLUSTER_STOP, shut down health probe
 });
 
 // The supervisor will immediately send a request to start running a worker

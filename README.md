@@ -30,18 +30,21 @@ Any attempt to listen for incomming connections with a `net`, `http`, or
 // launcher.js
 var ClusterSupervisor = require("clustermon");
 var supervisor = new ClusterSupervisor({
+
     exec: path.join(__dirname, "worker.js"),
-    initMaster: function() {
-        // additional master initialization
-    },
-    respawnWorkerCount: 1,      // When workers exit, retry spawning up to x
-                                // times. -1 for infinite.
     numCPUs: 8,                 // Number of workers to spawn. Default is # cores.
     logicalIds: [5, 6, 7]       // Give workers an env variable
                                 // "PROCESS_LOGICAL_ID" based on the values in
                                 // the array and the order of the array.
+
+    // Configure the supervisor's behavior:
+
     pulse: 1000,                // The interval at which workers will attempt
                                 // to submit their memory usage and load statistics.
+    unhealthyTimeout: 10e3,     // The maximum delay in miliseconds after an
+                                // expected heart beat that a worker supervisor
+                                // will tolerate before stopping a stalled
+                                // worker.
     serverRestartDelay: 1000,   // The period that a load balancer will wait before
                                 // attempting to restart a socket server.
     workerForceStopDelay: 1000, // The period that a worker supervisor will wait between
@@ -50,15 +53,47 @@ var supervisor = new ClusterSupervisor({
     workerRestartDelay: 1000,   // The period that a worker will wait between
                                 // when a worker stops and when it will attempt
                                 // to restart it.
+    respawnWorkerCount: 1,      // When workers exit, retry spawning up to x
+                                // times. -1 for infinite.
+
+    // Override the child process parameters for each worker:
+
     execPath: '/usr/bin/node',  // An alternate Node.js binary to use to spawn
                                 // worker processes.
     execArgv: [],               // An alternate set of command line arguments
                                 // for Node.js to spawn the worker process.
+    cwd: '/',                   // The working directory for each worker
+                                // process.
     encoding: 'utf-8',          // Encoding for standard IO of the worker.
     silent: false,              // Pipes the worker standard IO into the
                                 // supervisor process instead of inheriting the
                                 // supervisor's own standard IO.
-    logger: {error, warn, info, debug}
+
+    // Introduce additional cluster supervisor initialization.
+    // `this` is the cluster supervisor.
+    initMaster: function() {
+    },
+
+    // Override the method used to create the worker environment.
+    // `this` is a worker supervisor and `this.id` is its logical id.
+    createEnvironment: function () {
+        return {
+            PROCESS_LOGICAL_ID: this.id
+        };
+    },
+
+    // Override the health check method of the worker supervisor.
+    // If this returns false, the worker process fails and will be stopped.
+    // The health check will occur on the same interval as the worker's health
+    // report (pulse) but may be offset by as much under normal conditions.
+    checkHealth: function (health) {
+        return health.memoryUsage.rss < 700e6;
+    },
+
+    // Override the logger for the cluster. By default, we create a debuglog
+    // named 'clustermon' visible with `NODE_DEBUG=clustermon`.
+    logger: console
+
 });
 
 supervisor.start();
@@ -79,8 +114,8 @@ process.title = 'worker';
 // initialize worker stuff here...
 ```
 
-`execPath`, `execArgv`, and `silent` are passed through to Node.js's own
-[child_process][].
+`execPath`, `execArgv`, `encoding`, `cwd`, and `silent` are passed through to
+Node.js's own [child_process][].
 
 [child_process]: http://nodejs.org/api/child_process.html
 

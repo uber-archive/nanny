@@ -16,9 +16,13 @@ function WorkerSupervisor(spec) {
     this.logger = spec.logger;
     this.id = spec.id;
     this.spec = spec;
+    this.createEnvironment = spec.createEnvironment || this.createEnvironment;
+    this.checkHealth = spec.checkHealth || this.checkHealth;
 
     this.process = null;
     this.loadBalancers = {};
+
+    this.health = null;
 
     // Pre-bind event handlers
     this.state = new Standby(this);
@@ -123,6 +127,12 @@ WorkerSupervisor.prototype.forEachLoadBalancer = function (callback, thisp) {
 
 // Thus begins the internals.
 
+WorkerSupervisor.prototype.createEnvironment = function () {
+    return {
+        PROCESS_LOGICAL_ID: this.id
+    };
+};
+
 // Internal method for starting the worker subprocess, initiated by a state.
 WorkerSupervisor.prototype.spawn = function () {
     var child = this.process;
@@ -135,9 +145,7 @@ WorkerSupervisor.prototype.spawn = function () {
     // TODO inject --abort_on_uncaught_exception to instruct V8 to dump core if
     // it hits an uncaught exception.
     var workerArgs = spec.args || [];
-    var workerEnv = {
-        PROCESS_LOGICAL_ID: this.id
-    };
+    var workerEnv = this.createEnvironment();
     var workerOptions = {
         cwd: spec.cwd,
         env: workerEnv,
@@ -146,14 +154,16 @@ WorkerSupervisor.prototype.spawn = function () {
         execArgv: spec.execArgv,
         silent: spec.silent,
     };
-    var workerPath = spec.workerPath;
-    var workerPulse = spec.pulse;
     var worker = childProcess.fork(path.join(__dirname, '_worker'), workerArgs, workerOptions);
     this.process = worker;
 
     // Issue a command to the thunk process requesting that it load the worker
     // module.
-    worker.send({cmd: 'CLUSTER_START', modulePath: workerPath, pulse: workerPulse});
+    worker.send({
+        cmd: 'CLUSTER_START',
+        modulePath: spec.workerPath,
+        pulse: spec.pulse
+    });
 
     worker.on('error', this.handleError);
     worker.on('exit', this.handleExit);
@@ -180,7 +190,7 @@ WorkerSupervisor.prototype.kill = function (signal) {
                 signal: child.pid
             });
         }
-        this.do('handleStop');
+        this.do('handleStop', {signal: signal});
     }
 };
 
@@ -283,10 +293,19 @@ WorkerSupervisor.prototype.handlePulse = function (message) {
     // TODO make use of event loop load and memory usage information to
     // prioritize workers in scheduling
     this.health = {
+        reportedAt: Date.now(),
         load: message.load,
-        memory: message.memoryUsage
+        memoryUsage: message.memoryUsage
     };
+    this.state.handlePulse();
     this.emit('health', this.health);
+    if (!this.checkHealth(this.health)) {
+        this.restart();
+    }
+};
+
+WorkerSupervisor.prototype.checkHealth = function () {
+    return true;
 };
 
 module.exports = WorkerSupervisor;
@@ -309,45 +328,35 @@ module.exports = WorkerSupervisor;
 // When entering the standby state, you have the option of requesting a delayed
 // restart.
 
-function Standby(worker, startDelay) {
+function Standby(worker) {
     this.worker = worker;
     this.startDelayHandle = null;
     this.startingAt = null;
-    if (startDelay !== void 0) {
-        this.startingAt = Date.now() + startDelay;
-        setTimeout(function () {
-            console.log("START");
-            worker.start();
-        }, startDelay);
-    }
 }
 
 Standby.prototype.name = 'standby';
 
 Standby.prototype.inspect = function () {
-    if (this.startingAt !== null) {
-        return {state: 'standby', id: this.worker.id, startingAt: this.startingAt, ets: this.startingAt - Date.now()};
-    } else {
-        return {state: 'standby', id: this.worker.id, startingAt: this.startingAt};
-    }
-};
-
-Standby.prototype.cancelStart = function () {
-    if (this.startDelayHandle) {
-        clearTimeout(this.startDelayHandle);
-        this.startDelayHandle = null;
-    }
+    return {
+        id: this.worker.id,
+        state: 'standby',
+        startingAt: this.startingAt
+    };
 };
 
 Standby.prototype.do = function (command, arg) {
-    if (command === 'start' || command === 'restart' || command === 'reload') {
-        this.cancelStart();
+    if (command === 'start' || command === 'reload') {
+        this.cancelRestart();
         this.worker.spawn();
         return new Running(this.worker);
-    } else if (command === 'stop' || command === 'forceStop') {
-        this.cancelStart();
+    } else if (command === 'restart') {
+        this.scheduleRestart();
         return this;
-    } else if (command === 'dump' || command === 'debug') {
+    } else if (
+        command === 'stop' || command === 'forceStop' ||
+        command === 'dump' || command === 'debug'
+    ) {
+        this.cancelRestart();
         return this;
     } else {
         // The entire command vocabulary should be implemented.
@@ -359,39 +368,96 @@ Standby.prototype.do = function (command, arg) {
     }
 };
 
+// This is called when a worker stops unexpectedly to set up the restart delay
+// or ignore if restartCount is down.
+Standby.prototype.scheduleRestart = function () {
+    var restartDelay; // An undefined restart delay implies remain in stand by indefinitely
+    var worker = this.worker;
+    var spec = worker.spec;
+    var logger = worker.logger;
+
+    if (spec.respawnCount !== 0)  { // -1 and Infinity both imply indefinite restarts
+        if (spec.respawnCount > 0) { // > 0 implies finite restarts
+            this.worker.respawnCount--;
+        }
+        restartDelay = spec.restartDelay || 0;
+    }
+
+    if (restartDelay) {
+        this.startingAt = Date.now() + restartDelay;
+        logger.info('delaying worker restart', {
+            id: worker.id,
+            startingAt: this.startingAt
+        });
+        setTimeout(function () {
+            logger.info('restarting worker now', {
+                id: worker.id
+            });
+            worker.start();
+        }, restartDelay);
+    }
+};
+
+Standby.prototype.cancelRestart = function () {
+    if (this.startDelayHandle) {
+        clearTimeout(this.startDelayHandle);
+        this.startDelayHandle = null;
+    }
+};
+
 
 // ### Running state
 
 function Running(worker, isDebugging) {
     this.worker = worker;
     this.isDebugging = isDebugging;
+    this.at = Date.now();
+    this.unhealthyTimeoutHandle = null;
+
+    this.handleUnhealthyTimeout = this.handleUnhealthyTimeout.bind(this);
+
+    // Start the health check interval if configured
+    if (worker.spec.pulse && worker.spec.unhealthyTimeout) {
+        this.scheduleUnhealthyTimeout();
+    }
 }
 
 Running.prototype.name = 'running';
 
 Running.prototype.inspect = function () {
-    return {state: 'running', id: this.worker.id, pid: this.worker.process.pid, health: this.worker.health};
+    return {
+        id: this.worker.id,
+        state: 'running',
+        pid: this.worker.process.pid,
+        uptime: Date.now() - this.at,
+        health: this.worker.health
+    };
 };
 
 Running.prototype.do = function (command) {
+    // Invariant: must call clearUnhealthyTimeout before transitioning into
+    // another state.
     if (command === 'start') {
         // Already started. Idempotent.
         return this;
     } else if (command === 'stop') {
         this.worker.kill('SIGTERM');
+        this.clearUnhealthyTimeout();
         return new Stopping(this.worker);
     } else if (command === 'forceStop') {
         this.worker.kill('SIGKILL');
+        this.clearUnhealthyTimeout();
         return new Stopping(this.worker);
     } else if (command === 'dump') {
         this.worker.kill('SIGQUIT');
         // More patience needed for core dumps
         // TODO consider alternately spinning the worker off and producing a
-        // new one to prevent blocking a new worker.
+        // new one to prevent blocking a new worker creation.
         // This may be necessary for preventing denial of service.
+        this.clearUnhealthyTimeout();
         return new Stopping(this.worker, Infinity);
     } else if (command === 'restart') {
-        return this.do('stop').do('start');
+        return this.do('stop').do('restart');
     } else if (command === 'reload') {
         this.worker.kill('SIGHUP');
         return this;
@@ -402,68 +468,95 @@ Running.prototype.do = function (command) {
         // This path can be reached from SIGHUP, an error on spinning up the
         // child process, or a plain old crash.
         this.worker.fullStop();
-        var restartDelay; // An undefined restart delay implies remain in stand by indefinitely
-        if (this.worker.respawnCount !== 0)  { // -1 and Infinity both imply indefinite restarts
-            if (this.worker.respawnCount > 0) { // > 0 implies finite restarts
-                this.worker.respawnCount--;
-            }
-            restartDelay = this.worker.spec.restartDelay || 0;
-        }
-        return new Standby(this.worker, restartDelay);
+        this.clearUnhealthyTimeout();
+        return new Standby(this.worker).do('restart');
     } else {
         // The entire command vocabulary should be implemented.
         throw new Error('Assertion failed: can\'t ' + command + ' while running');
     }
 };
 
+Running.prototype.scheduleUnhealthyTimeout = function () {
+    var worker = this.worker;
+    this.unhealthyTimeoutHandle = setTimeout(
+        this.handleUnhealthyTimeout,
+        worker.spec.pulse + worker.spec.unhealthyTimeout
+    );
+};
+
+Running.prototype.handleUnhealthyTimeout = function () {
+    this.worker.logger.error('stopping spinning worker', {
+        id: this.worker.id,
+        pid: this.worker.process.pid
+    });
+    this.worker.restart();
+};
+
+Running.prototype.clearUnhealthyTimeout = function () {
+    if (this.unhealthyTimeoutHandle) {
+        clearTimeout(this.unhealthyTimeoutHandle);
+    }
+};
+
+Running.prototype.handlePulse = function () {
+    this.clearUnhealthyTimeout();
+    this.scheduleUnhealthyTimeout();
+};
+
 
 // ### Stopping state
 
 function Stopping(worker, forceStopDelay) {
-    var self = this;
+    var spec = worker.spec;
+    var logger = worker.logger;
     this.worker = worker;
+    this.start = false;
     this.restart = false;
+    this.at = Date.now();
     this.forceStopHandle = null;
+    this.forceStopDelay = forceStopDelay || spec.forceStopDelay;
 
-    forceStopDelay = forceStopDelay || worker.spec.forceStopDelay;
-
-    if (forceStopDelay) {
-        // Schedule a forceful shutdown if graceful shutdown does not complete in a
-        // timely fashion.
-        this.forceStopHandle = setTimeout(function () {
-            self.forceStopHandle = null;
-            worker.logger.debug('lost patience with stopping worker - forcing shutdown');
-            worker.do('forceStop');
-        }, forceStopDelay);
+    // The force stop delay does get overridden to Inifinity in some cases.
+    forceStopDelay = forceStopDelay || spec.forceStopDelay || 5000;
+    // Schedule a forceful shutdown if graceful shutdown does not complete in a
+    // timely fashion.
+    logger.debug('worker force stop timeout scheduled', {
+        id: worker.id,
+        forceStopDelay: this.forceStopDelay
+    });
+    if (forceStopDelay < Infinity) {
+        this.forceStopHandle = setTimeout(
+            this.handleForceStopTimeout.bind(this),
+            forceStopDelay
+        );
     }
 }
 
 Stopping.prototype.name = 'stopping';
 
-// When we transition from stopping to standby, we clean up and apply any
-// scheduled state stransitions.
-// Particularly, we cancel the forced-stop timer, and restart if that is
-// running is the target state.
-Stopping.prototype.followup = function (state) {
-    if (this.forceStopHandle) {
-        clearTimeout(this.forceStopHandle);
-    }
-    if (this.restart) {
-        state = state.do('start');
-    }
-    return state;
-};
-
 Stopping.prototype.inspect = function () {
-    return {state: 'stopping', id: this.worker.id, pid: this.worker.process.pid};
+    return {
+        id: this.worker.id,
+        state: 'stopping',
+        pid: this.worker.process.pid,
+        time: Date.now() - this.at,
+        health: this.worker.health
+    };
 };
 
 Stopping.prototype.do = function (command) {
-    if (command === 'start' || command === 'restart' || command === 'reload') {
+    if (command === 'start' || command === 'reload') {
         // We will remain in the stopping state until the child process is
         // verifiably dead.
         // Instead of starting a new child process immediately, we make a note
         // to do so then.
+        this.start = true;
+        return this;
+    } else if (command === 'restart') {
+        // Restart differs only slightly. We will still wait for the stop.
+        // We will follow up with a restart command instead of a start command,
+        // which entrains the maximum number of automatic restarts limit and
+        // the automatic restart delay if configured.
         this.restart = true;
         return this;
     } else if (command === 'stop') {
@@ -493,5 +586,41 @@ Stopping.prototype.do = function (command) {
     } else {
         throw new Error('Assertion failed: Can\'t ' + command + ' while stopping');
     }
+};
+
+// When we transition from stopping to standby, we clean up and apply any
+// scheduled state stransitions.
+// Particularly, we cancel the forced-stop timer, and restart if that is
+// running is the target state.
+Stopping.prototype.followup = function (state) {
+    if (this.forceStopHandle) {
+        clearTimeout(this.forceStopHandle);
+    }
+    if (this.start) {
+        state = state.do('start');
+    } else if (this.restart) {
+        state = state.do('restart');
+    }
+    return state;
+};
+
+Stopping.prototype.handleForceStopTimeout = function () {
+    var worker = this.worker;
+    var logger = worker.logger;
+    this.forceStopHandle = null;
+    if (typeof this.forceStopDelay === 'number') {
+        logger.debug('lost patience with stopping worker - forcing shutdown', {});
+        worker.do('forceStop');
+    } else {
+        logger.debug('worker will not be forced to shut down - workerForceStopDelay not configured', {
+            id: worker.id
+        });
+    }
+};
+
+Stopping.prototype.handlePulse = function () {
+    // The pulse is ignored until the process stopped.
+    // In the standby state, pulses are unexpected and would throw a
+    // non-existing method error.
 };
 
