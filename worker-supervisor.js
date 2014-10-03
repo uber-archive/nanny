@@ -64,9 +64,9 @@ util.inherits(WorkerSupervisor, events.EventEmitter);
 // The `do` method of a state returns the next state, even if that state does
 // not change.
 // Every state must handle every command.
-WorkerSupervisor.prototype.do = function (command, arg) {
+WorkerSupervisor.prototype.do = function (command) {
     var former = this.state;
-    this.state = former.do(command, arg);
+    this.state = former[command]();
     if (this.state !== former) {
         this.logger.debug('worker state change', this.inspect());
         this.emit(this.state.name, this);
@@ -374,33 +374,16 @@ Standby.prototype.inspect = function () {
     };
 };
 
-Standby.prototype.do = function (command, arg) {
-    if (command === 'start' || command === 'reload') {
-        this.cancelRestart();
-        this.worker.spawn();
-        return new Running(this.worker);
-    } else if (command === 'restart') {
-        this.scheduleRestart();
-        return this;
-    } else if (
-        command === 'stop' || command === 'forceStop' ||
-        command === 'dump' || command === 'debug'
-    ) {
-        this.cancelRestart();
-        return this;
-    } else {
-        // The entire command vocabulary should be implemented.
-        throw new Error(
-            'Assertion failed: Can\'t ' + command + ' ' +
-            JSON.stringify(arg) + ' while standing by on worker ' +
-            this.worker.id
-        );
-    }
+Standby.prototype.start =
+Standby.prototype.reload = function () {
+    this.cancelRestart();
+    this.worker.spawn();
+    return new Running(this.worker);
 };
 
 // This is called when a worker stops unexpectedly to set up the restart delay
 // or ignore if restartCount is down.
-Standby.prototype.scheduleRestart = function () {
+Standby.prototype.restart = function () {
     var restartDelay; // An undefined restart delay implies remain in stand by indefinitely
     var worker = this.worker;
     var spec = worker.spec;
@@ -426,6 +409,15 @@ Standby.prototype.scheduleRestart = function () {
             worker.start();
         }, restartDelay);
     }
+    return this;
+};
+
+Standby.prototype.stop =
+Standby.prototype.forceStop =
+Standby.prototype.dump =
+Standby.prototype.debug = function () {
+    this.cancelRestart();
+    return this;
 };
 
 Standby.prototype.cancelRestart = function () {
@@ -464,45 +456,50 @@ Running.prototype.inspect = function () {
     };
 };
 
-Running.prototype.do = function (command) {
-    // Invariant: must call clearUnhealthyTimeout before transitioning into
-    // another state.
-    if (command === 'start') {
-        // Already started. Idempotent.
-        return this;
-    } else if (command === 'stop') {
-        this.worker.kill('SIGTERM');
-        this.clearUnhealthyTimeout();
-        return new Stopping(this.worker);
-    } else if (command === 'forceStop') {
-        this.worker.kill('SIGKILL');
-        this.clearUnhealthyTimeout();
-        return new Stopping(this.worker);
-    } else if (command === 'dump') {
-        this.worker.kill('SIGQUIT');
-        /* TODO consider alternately spinning the worker off and producing a
-         * new one to prevent blocking a new worker creation. This may be
-         * necessary for preventing denial of service. */
-        this.clearUnhealthyTimeout();
-        return new Stopping(this.worker);
-    } else if (command === 'restart') {
-        return this.do('stop').do('restart');
-    } else if (command === 'reload') {
-        this.worker.kill('SIGHUP');
-        return this;
-    } else if (command === 'debug') {
-        this.worker.kill('SIGUSR1');
-        return this;
-    } else if (command === 'handleStop') {
-        // This path can be reached from SIGHUP, an error on spinning up the
-        // child process, or a plain old crash.
-        this.worker.fullStop();
-        this.clearUnhealthyTimeout();
-        return new Standby(this.worker).do('restart');
-    } else {
-        // The entire command vocabulary should be implemented.
-        throw new Error('Assertion failed: can\'t ' + command + ' while running');
-    }
+// Invariant: must call clearUnhealthyTimeout before transitioning into
+// another state.
+
+// Already started. Idempotent.
+Running.prototype.start = function () {
+    return this;
+};
+
+Running.prototype.stop = function () {
+    this.worker.kill('SIGTERM');
+    this.clearUnhealthyTimeout();
+    return new Stopping(this.worker);
+};
+
+Running.prototype.forceStop = function () {
+    this.worker.kill('SIGKILL');
+    this.clearUnhealthyTimeout();
+    return new Stopping(this.worker);
+};
+
+Running.prototype.dump = function () {
+    this.worker.kill('SIGQUIT');
+    /* TODO consider alternately spinning the worker off and producing a
+     * new one to prevent blocking a new worker creation. This may be
+     * necessary for preventing denial of service. */
+    this.clearUnhealthyTimeout();
+    return new Stopping(this.worker);
+};
+
+Running.prototype.reload = function () {
+    return this.do('stop').do('restart');
+};
+
+Running.prototype.debug = function () {
+    this.worker.kill('SIGHUP');
+    return this;
+};
+
+Running.prototype.handleStop = function () {
+    // This path can be reached from SIGHUP, an error on spinning up the
+    // child process, or a plain old crash.
+    this.worker.fullStop();
+    this.clearUnhealthyTimeout();
+    return new Standby(this.worker).do('restart');
 };
 
 Running.prototype.scheduleUnhealthyTimeout = function () {
@@ -573,48 +570,57 @@ Stopping.prototype.inspect = function () {
     };
 };
 
-Stopping.prototype.do = function (command) {
-    if (command === 'start' || command === 'reload') {
-        // We will remain in the stopping state until the child process is
-        // verifiably dead.
-        // Instead of starting a new child process immediately, we make a note
-        // to do so then.
-        this.start = true;
-        return this;
-    } else if (command === 'restart') {
-        // Restart differs only slightly. We will still wait for the stop.
-        // We will follow up with a restart command instead of a start command,
-        // which entrains the maximum number of automatic restarts limit and
-        // the automatic restart delay if configured.
-        this.restart = true;
-        return this;
-    } else if (command === 'stop') {
-        // Idempotent.
-        // Cancels a restart if this worker was asked to start, restart, or
-        // reload while it was stopping.
-        this.restart = false;
-        return this;
-    } else if (command === 'forceStop') {
-        // A force kill cancels the current force-stop timer (if it still
-        // exists), and proceeds to a new stopping state that resets the timer.
-        this.worker.kill('SIGKILL');
-        return this.followup(new Stopping(this.worker));
-    } else if (command === 'dump') {
-        // A forced core dump cancels the force-stop timer as well, proceeding
-        // to a new stopping state with a new forced shutdown timer.
-        this.worker.kill('SIGQUIT');
-        return this.followup(new Stopping(this.worker));
-    } else if (command === 'debug') {
-        // Dropping to debug console returns us to the running state and
-        // cancels the force shutdown.
-        this.worker.kill('SIGUSR1');
-        return this.followup(new Running(this.worker, !!'debug'));
-    } else if (command === 'handleStop') {
-        this.worker.fullStop();
-        return this.followup(new Standby(this.worker));
-    } else {
-        throw new Error('Assertion failed: Can\'t ' + command + ' while stopping');
-    }
+// We will remain in the stopping state until the child process is
+// verifiably dead.
+// Instead of starting a new child process immediately, we make a note
+// to do so then.
+Stopping.prototype.start =
+Stopping.prototype.reload = function () {
+    this.start = true;
+    return this;
+};
+
+// Restart differs only slightly. We will still wait for the stop.
+// We will follow up with a restart command instead of a start command,
+// which entrains the maximum number of automatic restarts limit and
+// the automatic restart delay if configured.
+Stopping.prototype.restart = function () {
+    this.restart = true;
+    return this;
+};
+
+// Cancels a restart if this worker was asked to start, restart, or
+// reload while it was stopping.
+// Idempotent.
+Stopping.prototype.stop = function () {
+    this.restart = false;
+    return this;
+};
+
+// A force kill cancels the current force-stop timer (if it still
+// exists), and proceeds to a new stopping state that resets the timer.
+Stopping.prototype.forceStop = function () {
+    this.worker.kill('SIGKILL');
+    return this.followup(new Stopping(this.worker));
+};
+
+// A forced core dump cancels the force-stop timer as well, proceeding
+// to a new stopping state with a new forced shutdown timer.
+Stopping.prototype.dump = function () {
+    this.worker.kill('SIGQUIT');
+    return this.followup(new Stopping(this.worker));
+};
+
+// Dropping to debug console returns us to the running state and
+// cancels the force shutdown.
+Stopping.prototype.debug = function () {
+    this.worker.kill('SIGUSR1');
+    return this.followup(new Running(this.worker, !!'debug'));
+};
+
+Stopping.prototype.handleStop = function () {
+    this.worker.fullStop();
+    return this.followup(new Standby(this.worker));
 };
 
 // When we transition from stopping to standby, we clean up and apply any
