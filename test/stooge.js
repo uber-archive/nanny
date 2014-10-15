@@ -1,6 +1,7 @@
 'use strict';
 
 var role = process.env.ROLE;
+process.title = role;
 if (role === 'larry') {
     // Larry is a worker that never reports his event loop healthy because he's
     // spinning.
@@ -15,16 +16,18 @@ if (role === 'larry') {
         for (var index = 0; index < 1000; index++) {
             head = {next: head};
         }
-    }, 0);
+    }, 10);
 } else if (role === 'moe') {
     // Moe is a worker that crashes.
     setTimeout(function () {
         throw new Error('MOE CAN\'T TAKE THIS ANY LONGER');
     }, 10000);
 //} else if (role === 'shemp') {
-//    // This is a worker that runs properly but starts and stops listening
-//    // periodically.
+    // This is a worker that does nothing in particular, but if you kill it,
+    // the supervisor will recreate it.
 //} else if (role === 'joe') {
+    // TODO This is a worker that runs properly but starts and stops listening
+    // periodically.
 //} else if (role === 'curly-joe') {
 }
 

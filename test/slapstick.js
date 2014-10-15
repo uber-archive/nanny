@@ -10,8 +10,8 @@ function log(message, object) {
 var supervisor = new ClusterSupervisor({
     respawnWorkerCount: 0,
     exec: path.join(__dirname, 'stooge.js'),
-    numCPUs: 3,
-    logicalIds: ['larry', 'curly', 'moe'],
+    numCPUs: 4,
+    logicalIds: ['larry', 'curly', 'moe', 'shemp'],
     pulse: 100,
     unhealthyTimeout: 5e3,
     logger: {debug: log, info: log, error: log, warn: log},
