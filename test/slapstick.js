@@ -18,7 +18,7 @@ var supervisor = new ClusterSupervisor({
     createEnvironment: function () {
         return {ROLE: this.id};
     },
-    checkHealth: function (health) {
+    isHealthy: function (health) {
         return health.memoryUsage.rss < 100e6;
     },
     workerRestartDelay: 4000,

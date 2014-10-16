@@ -43,7 +43,7 @@ function WorkerSupervisor(spec) {
 
     // The user can configure an alternate health check method.
     // By default, the worker will always pass.
-    this.checkHealth = spec.checkHealth || this.checkHealth;
+    this.isHealthy = spec.isHealthy || this.isHealthy;
 
     // The user can configure an alternate method for generating the worker
     // process environment.
@@ -329,12 +329,12 @@ WorkerSupervisor.prototype.handlePulse = function (message) {
     };
     this.state.handlePulse();
     this.emit('health', this.health);
-    if (!this.checkHealth(this.health)) {
+    if (!this.isHealthy(this.health)) {
         this.restart();
     }
 };
 
-WorkerSupervisor.prototype.checkHealth = function () {
+WorkerSupervisor.prototype.isHealthy = function () {
     return true;
 };
 

@@ -196,7 +196,7 @@ ClusterSupervisor.prototype._spawnWorker = function (logicalId) {
         restartDelay: spec.workerRestartDelay,
         forceStopDelay: spec.workerForceStopDelay,
         createEnvironment: spec.createEnvironment,
-        checkHealth: spec.checkHealth,
+        isHealthy: spec.isHealthy,
         unhealthyTimeout: spec.unhealthyTimeout
     });
     worker.on('listen', this.handleWorkerListenRequest);

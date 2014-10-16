@@ -86,7 +86,7 @@ var supervisor = new ClusterSupervisor({
     // If this returns false, the worker process fails and will be stopped.
     // The health check will occur on the same interval as the worker's health
     // report (pulse) but may be offset by as much under normal conditions.
-    checkHealth: function (health) {
+    isHealthy: function (health) {
         return health.memoryUsage.rss < 700e6;
     },
 
