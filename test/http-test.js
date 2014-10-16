@@ -14,7 +14,12 @@ test('communication with http server', function (assert) {
     var supervisor = new ClusterSupervisor({
         respawnWorkerCount: 0,
         exec: path.join(__dirname, 'hodor-http-server.js'),
-        numCPUs: numCPUs
+        numCPUs: numCPUs,
+        createEnvironment: function () {
+            return {
+                PROCESS_LOGICAL_ID: this.id
+            };
+        }
     });
 
     supervisor.start();

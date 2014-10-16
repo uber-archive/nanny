@@ -93,6 +93,7 @@ RoundRobinLoadBalancer.prototype.forEachWorkerSupervisor = function (callback, t
 RoundRobinLoadBalancer.prototype.goto = function (state) {
     this.state = state;
     this.emit(state, this);
+    this.emit('stateChange', this.state, this);
 };
 
 RoundRobinLoadBalancer.prototype.start = function () {

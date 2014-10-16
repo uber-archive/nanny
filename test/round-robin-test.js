@@ -17,7 +17,13 @@ test('communication with net server', function (assert) {
     var supervisor = new ClusterSupervisor({
         respawnWorkerCount: 0,
         exec: path.join(__dirname, 'hodor-net-server.js'),
-        numCPUs: numCPUs
+        numCPUs: numCPUs,
+        createEnvironment: function () {
+            return {
+                HODOR_NAME: this.id,
+                HODOR_PORT: 0
+            };
+        }
     });
 
     supervisor.start();

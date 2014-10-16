@@ -77,6 +77,7 @@ WorkerSupervisor.prototype.do = function (command) {
     if (this.state !== former) {
         this.logger.debug('worker state change', this.inspect());
         this.emit(this.state.name, this);
+        this.emit('stateChange', this.state.name, this);
     }
     return this.state;
 };

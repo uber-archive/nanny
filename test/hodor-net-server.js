@@ -8,11 +8,14 @@ var net = require('net');
 var server = net.createServer();
 
 server.on('connection', function (connection) {
-    connection.end(process.env.PROCESS_LOGICAL_ID);
+    connection.setEncoding('utf-8');
+    connection.end(process.env.HODOR_NAME);
 });
 
-server.listen(0, function () {
+server.listen(+process.env.HODOR_PORT, function () {
     var address = server.address();
-    process.send({cmd: 'TEST_LISTENING', address: address});
+    if (process.send) {
+        process.send({cmd: 'TEST_LISTENING', address: address});
+    }
 });
 
