@@ -50,6 +50,7 @@ var supervisor = new ClusterSupervisor({
     workerForceStopDelay: 1000, // The period that a worker supervisor will wait between
                                 // a stop command and when it will
                                 // automatically force stop with a kill signal.
+                                // Set to Infinity to disable.
     workerRestartDelay: 1000,   // The period that a worker will wait between
                                 // when a worker stops and when it will attempt
                                 // to restart it.

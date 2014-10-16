@@ -315,13 +315,13 @@ Server.prototype.close = function (callback) {
 
 Server.prototype._accept = function (connection) {
     var self = this;
-    function onend() {
+    function onfinish() {
         var index = self._connections.indexOf(connection);
         if (index >= 0) {
             self._connections.splice(index, 1);
         }
     }
-    connection.once('end', onend);
+    connection.once('finish', onfinish);
     this._connections.push(connection);
     this.emit('connection', connection);
 };

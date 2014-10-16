@@ -50,12 +50,17 @@ util.inherits(RoundRobinLoadBalancer, events.EventEmitter);
 RoundRobinLoadBalancer.prototype.Ring = Array; // TODO require('./_ring');
 
 RoundRobinLoadBalancer.prototype.inspect = function () {
-    return {state: this.state, port: this.port, address: this.address, backlog: this.queue.length};
+    return {
+        state: this.state,
+        port: this.port,
+        address: this.address,
+        backlog: this.queue.length,
+        memoryUsage: process.memoryUsage()
+    };
 };
 
 RoundRobinLoadBalancer.prototype.addWorkerSupervisor = function (workerSupervisor) {
     this.ring.push(workerSupervisor);
-    this.flushConnectionQueue();
     this.logger.debug('worker subscribed to connections', {
         id: workerSupervisor.id,
         port: this.port,
@@ -64,6 +69,7 @@ RoundRobinLoadBalancer.prototype.addWorkerSupervisor = function (workerSuperviso
     if (this.state === 'running') {
         workerSupervisor.sendAddress(this.port, this.address);
     }
+    this.flushConnectionQueue();
 };
 
 RoundRobinLoadBalancer.prototype.removeWorkerSupervisor = function (workerSupervisor) {

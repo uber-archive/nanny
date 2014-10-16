@@ -33,7 +33,7 @@ test('connection forwarding', function (assert) {
     var workerCount = 0;
     function onlistening(port) {
         workerCount++;
-        if (sharedPort === void 0) {
+        if (sharedPort === undefined) {
             sharedPort = port;
         } else {
             // Every worker should be listening on the same port

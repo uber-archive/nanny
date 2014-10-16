@@ -61,6 +61,7 @@ function ClusterSupervisor(spec) {
 
 util.inherits(ClusterSupervisor, events.EventEmitter);
 
+ClusterSupervisor.prototype.defaultWorkerForceStopDelay = 5000;
 ClusterSupervisor.prototype.LoadBalancer = LoadBalancer;
 ClusterSupervisor.prototype.WorkerSupervisor = WorkerSupervisor;
 
@@ -194,7 +195,8 @@ ClusterSupervisor.prototype._spawnWorker = function (logicalId) {
         // Supervisor spec:
         pulse: spec.pulse,
         restartDelay: spec.workerRestartDelay,
-        forceStopDelay: spec.workerForceStopDelay,
+        forceStopDelay: spec.workerForceStopDelay ||
+            this.defaultWorkerForceStopDelay,
         createEnvironment: spec.createEnvironment,
         isHealthy: spec.isHealthy,
         unhealthyTimeout: spec.unhealthyTimeout
@@ -288,9 +290,9 @@ ClusterSupervisor.prototype.handleLoadBalancerStandby = function (loadBalancer) 
 // Called when either a worker or load balancer enters stand-by mode. When both
 // populations are entirely on standby, the cluster is at standby.
 ClusterSupervisor.prototype.checkForFullStop = function () {
-    var runningWorkerCount = this.countActiveWorkers();
-    var runningLoadBalancerCount = this.countActiveLoadBalancers();
-    if (runningWorkerCount === 0 && runningLoadBalancerCount === 0) {
+    var activeWorkerCount = this.countActiveWorkers();
+    var activeLoadBalancerCount = this.countActiveLoadBalancers();
+    if (activeWorkerCount === 0 && activeLoadBalancerCount === 0) {
         this.logger.debug('cluster now standing by', {});
         this.emit('standby');
     }

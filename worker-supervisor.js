@@ -1,7 +1,7 @@
 'use strict';
 
 // A worker supervisor is an object that ensures that a worker process remains
-// running, restarting the child process if necessary, and forwarding requests
+// running, restarting the worker process if necessary, and forwarding requests
 // for network connections to the appropriate load balancer.
 
 var events = require('events');
@@ -59,44 +59,81 @@ util.inherits(WorkerSupervisor, events.EventEmitter);
 
 // ### Commands
 
-// Advances the worker's state due to a command or message from the child
+// Advances the worker's state due to a command or message from the worker
 // process itself.
 // The `do` method of a state returns the next state, even if that state does
 // not change.
 // Every state must handle every command.
 WorkerSupervisor.prototype.do = function (command) {
     var former = this.state;
+    if (!former[command]) {
+        throw new Error('Assertion failed: command not supported: ' + command);
+    }
+    // **This line is essential to understanding the mechanics of the worker
+    // supervisor state machine.**
+    // Each command method of every state object is responsible for returning
+    // the next state of the worker supervisor, albeit the same state.
     this.state = former[command]();
     if (this.state !== former) {
         this.logger.debug('worker state change', this.inspect());
         this.emit(this.state.name, this);
     }
+    return this.state;
 };
 
 // This commands the worker to start up
-WorkerSupervisor.prototype.start = function () { this.do('start'); };
+WorkerSupervisor.prototype.start = function (callback) {
+    if (callback) {
+        this.once('running', callback);
+    }
+    this.do('start');
+};
 
 // This commands the worker to stop, preferably with grace, but forcibly if
 // necessary.
-WorkerSupervisor.prototype.stop = function () { this.do('stop'); };
+WorkerSupervisor.prototype.stop = function (callback) {
+    if (callback) {
+        this.once('standby', callback);
+    }
+    this.do('stop');
+};
 
 // This commands the worker to stop and start anew.
-WorkerSupervisor.prototype.restart = function () { this.do('restart'); };
+WorkerSupervisor.prototype.restart = function (callback) {
+    if (callback) {
+        this.once('running', callback);
+    }
+    this.do('restart');
+};
 
 // This commands the worker to reload its configuration files, or restart.
-WorkerSupervisor.prototype.reload = function () { this.do('reload'); };
+// This does not necessarily cause a state change.
+WorkerSupervisor.prototype.reload = function () {
+    this.do('reload');
+};
 
 // This commands the supervisor to terminate the worker without notice.
-WorkerSupervisor.prototype.forceStop = function () { this.do('forceStop'); };
+WorkerSupervisor.prototype.forceStop = function (callback) {
+    if (callback) {
+        this.once('standby', callback);
+    }
+    this.do('forceStop');
+};
 
 // This commands the worker to dump core immediately
-WorkerSupervisor.prototype.dump = function () { this.do('dump'); };
+WorkerSupervisor.prototype.dump = function () {
+    this.do('dump');
+};
 
 // This commands the worker to drop to its debugger repl
-WorkerSupervisor.prototype.debug = function () { this.do('debug'); };
+WorkerSupervisor.prototype.debug = function () {
+    this.do('debug');
+};
 
 // Inquires for the current state of the worker.
-WorkerSupervisor.prototype.inspect = function () { return this.state.inspect(); };
+WorkerSupervisor.prototype.inspect = function () {
+    return this.state.inspect();
+};
 
 // Thus ends the public interface of a worker supervisor.
 // Thus begins the interface exposed for load balancers.
@@ -122,7 +159,7 @@ WorkerSupervisor.prototype.sendAddress = function (port, address) {
 // Called by the load balancer if its server emits an error, broadcasting that
 // error to all attached servers.
 WorkerSupervisor.prototype.sendError = function (port, error) {
-    if (!(error instanceof Error)) {
+    if (Object.prototype.toString.call(error) !== '[object Error]') {
         throw new Error('Can\'t send error to worker. Must be an Error instance. Got: ' + error);
     }
     this.process.send({
@@ -183,7 +220,7 @@ WorkerSupervisor.prototype.spawn = function () {
     var worker = childProcess.fork(path.join(__dirname, '_worker'), workerArgs, workerOptions);
     this.process = worker;
 
-    // Issue a command to the thunk process requesting that it load the worker
+    // Issue a command to the worker process requesting that it load the worker
     // module.
     worker.send({
         cmd: 'CLUSTER_START',
@@ -273,9 +310,11 @@ WorkerSupervisor.prototype.handleMessage = function (message, handle) {
     });
     */
     if (typeof message !== 'object' || message === null) {
-        return;
-    }
-    if (message.cmd === 'CLUSTER_LISTEN') {
+        this.logger.warn('worker supervisor received non-object message', {
+            id: this.id,
+            message: message
+        });
+    } else if (message.cmd === 'CLUSTER_LISTEN') {
         this.emit('listen', message.port, message.address, message.backlog, this);
     } else if (message.cmd === 'CLUSTER_CLOSE') {
         this.emit('close', message.port, this);
@@ -352,8 +391,8 @@ module.exports = WorkerSupervisor;
 
 // ### Standing-by state
 
-// In the stand by state, there is no child process and no communication from a
-// child process is expected.
+// In the stand by state, there is no worker process and no communication from a
+// worker process is expected.
 // During standby, batch stop and debug commands are ignored.
 // When entering the standby state, you have the option of requesting a delayed
 // restart.
@@ -402,7 +441,7 @@ Standby.prototype.restart = function () {
             id: worker.id,
             startingAt: this.startingAt
         });
-        setTimeout(function () {
+        this.startDelayHandle = setTimeout(function () {
             logger.info('restarting worker now', {
                 id: worker.id
             });
@@ -413,27 +452,38 @@ Standby.prototype.restart = function () {
 };
 
 Standby.prototype.stop =
-Standby.prototype.forceStop =
-Standby.prototype.dump =
-Standby.prototype.debug = function () {
+Standby.prototype.forceStop = function () {
     this.cancelRestart();
     return this;
+};
+
+// Requesting a dump or debug of a non-running worker has no effect, not even
+// to cancel restart.
+Standby.prototype.dump =
+Standby.prototype.debug = function () {
 };
 
 Standby.prototype.cancelRestart = function () {
     if (this.startDelayHandle) {
         clearTimeout(this.startDelayHandle);
         this.startDelayHandle = null;
+        this.startingAt = null;
     }
+};
+
+Standby.prototype.handlePulse = function () {
+    throw new Error(
+        'Assertion failed: should not receive a pulse message from a worker ' +
+        'process while worker supervisor is standing by'
+    );
 };
 
 
 // ### Running state
 
-function Running(worker, isDebugging) {
+function Running(worker) {
     this.worker = worker;
-    this.isDebugging = isDebugging;
-    this.at = Date.now();
+    this.startedAt = Date.now();
     this.unhealthyTimeoutHandle = null;
 
     this.handleUnhealthyTimeout = this.handleUnhealthyTimeout.bind(this);
@@ -451,7 +501,7 @@ Running.prototype.inspect = function () {
         id: this.worker.id,
         state: 'running',
         pid: this.worker.process.pid,
-        uptime: Date.now() - this.at,
+        startedAt: this.startedAt,
         health: this.worker.health
     };
 };
@@ -476,8 +526,10 @@ Running.prototype.forceStop = function () {
     return new Stopping(this.worker);
 };
 
+// SIGABRT causes a process to dump core.
+// SIGQUIT does the same but usually only in response to Ctrl+\ at the console.
 Running.prototype.dump = function () {
-    this.worker.kill('SIGQUIT');
+    this.worker.kill('SIGABRT');
     /* TODO consider alternately spinning the worker off and producing a
      * new one to prevent blocking a new worker creation. This may be
      * necessary for preventing denial of service. */
@@ -485,23 +537,30 @@ Running.prototype.dump = function () {
     return new Stopping(this.worker);
 };
 
+Running.prototype.restart = function () {
+    return this.stop().restart();
+};
+
+// Sending SIGHUP to the worker process can have two different outcomes.
+// The default behavior is to stop the process.
+// Remaining in the 'running' state, the supervisor will automatically restart
+// when it detects the halted worker.
+// Otherwise, the worker has the option of trapping SIGHUP and, by UNIX
+// convention, reload its configuration instead.
 Running.prototype.reload = function () {
     this.worker.kill('SIGHUP');
     return this;
 };
 
-Running.prototype.restart = function () {
-    return this.stop().restart();
-};
-
+// We transition to the stopping state to debug.
+// The process must be stopped manually to transition back to standby.
 Running.prototype.debug = function () {
-    this.worker.kill('SIGHUP');
-    return this;
+    return new Stopping(this.worker).debug();
 };
 
 Running.prototype.handleStop = function () {
     // This path can be reached from SIGHUP, an error on spinning up the
-    // child process, or a plain old crash.
+    // worker process, or a plain old crash.
     this.worker.fullStop();
     this.clearUnhealthyTimeout();
     return new Standby(this.worker).restart();
@@ -541,14 +600,16 @@ function Stopping(worker, forceStopDelay) {
     var spec = worker.spec;
     var logger = worker.logger;
     this.worker = worker;
-    this.thenStart = false;
-    this.thenRestart = false;
-    this.at = Date.now();
+    this.nextState = null;
+    this.isDebugging = false;
+    this.stoppedAt = Date.now();
     this.forceStopHandle = null;
+    this.forceStopAt = null;
+    this.forcedStop = false;
     this.forceStopDelay = forceStopDelay || spec.forceStopDelay;
 
     // The force stop delay does get overridden to Inifinity in some cases.
-    forceStopDelay = forceStopDelay || spec.forceStopDelay || 5000;
+    forceStopDelay = forceStopDelay || spec.forceStopDelay;
     // Schedule a forceful shutdown if graceful shutdown does not complete in a
     // timely fashion.
     logger.debug('worker force stop timeout scheduled', {
@@ -556,6 +617,7 @@ function Stopping(worker, forceStopDelay) {
         forceStopDelay: this.forceStopDelay
     });
     if (forceStopDelay < Infinity) {
+        this.forceStopAt = Date.now() + forceStopDelay;
         this.forceStopHandle = setTimeout(
             this.handleForceStopTimeout.bind(this),
             forceStopDelay
@@ -569,19 +631,22 @@ Stopping.prototype.inspect = function () {
     return {
         id: this.worker.id,
         state: 'stopping',
+        isDebugging: this.isDebugging,
         pid: this.worker.process.pid,
-        time: Date.now() - this.at,
+        stoppedAt: this.stoppedAt,
+        forceStopAt: this.forceStopAt,
+        forcedStop: this.forcedStop,
         health: this.worker.health
     };
 };
 
-// We will remain in the stopping state until the child process is
+// We will remain in the stopping state until the worker process is
 // verifiably dead.
-// Instead of starting a new child process immediately, we make a note
+// Instead of starting a new worker process immediately, we make a note
 // to do so then.
 Stopping.prototype.start =
 Stopping.prototype.reload = function () {
-    this.thenStart = true;
+    this.nextState = 'start';
     return this;
 };
 
@@ -590,7 +655,11 @@ Stopping.prototype.reload = function () {
 // which entrains the maximum number of automatic restarts limit and
 // the automatic restart delay if configured.
 Stopping.prototype.restart = function () {
-    this.thenRestart = true;
+    // A start command has higher precedence than a restart command.
+    // The start command implies urgency and has to be issued manually.
+    if (this.nextState !== 'start') {
+        this.nextState = 'restart';
+    }
     return this;
 };
 
@@ -598,50 +667,58 @@ Stopping.prototype.restart = function () {
 // reload while it was stopping.
 // Idempotent.
 Stopping.prototype.stop = function () {
-    this.thenRestart = false;
+    this.nextState = null;
     return this;
 };
 
 // A force kill cancels the current force-stop timer (if it still
 // exists), and proceeds to a new stopping state that resets the timer.
 Stopping.prototype.forceStop = function () {
+    this.forcedStopAt = Date.now();
     this.worker.kill('SIGKILL');
-    return this.followup(new Stopping(this.worker));
+    return this;
 };
 
-// A forced core dump cancels the force-stop timer as well, proceeding
-// to a new stopping state with a new forced shutdown timer.
+// SIGABRT causes a process to dump core.
+// SIGQUIT does the same but usually only in response to Ctrl+\ at the console.
 Stopping.prototype.dump = function () {
-    this.worker.kill('SIGQUIT');
-    return this.followup(new Stopping(this.worker));
+    this.worker.kill('SIGABRT');
+    return this;
 };
 
-// Dropping to debug console returns us to the running state and
-// cancels the force shutdown.
+// Node.js reserves SIGUSR1 for dropping to debug mode.
+// We remain in the stopping state during debug.
+// The worker must stop of its own accord to proceed to standby or follow up
+// states.
 Stopping.prototype.debug = function () {
+    this.isDebugging = true;
+    this.cancelForceStopTimeout();
     this.worker.kill('SIGUSR1');
-    return this.followup(new Running(this.worker, !!'debug'));
-};
-
-Stopping.prototype.handleStop = function () {
-    this.worker.fullStop();
-    return this.followup(new Standby(this.worker));
+    return this;
 };
 
 // When we transition from stopping to standby, we clean up and apply any
 // scheduled state stransitions.
 // Particularly, we cancel the forced-stop timer, and restart if that is
 // running is the target state.
-Stopping.prototype.followup = function (state) {
-    if (this.forceStopHandle) {
-        clearTimeout(this.forceStopHandle);
-    }
-    if (this.thenStart) {
+Stopping.prototype.handleStop = function () {
+    this.worker.fullStop();
+    this.cancelForceStopTimeout();
+    var state = new Standby(this.worker);
+    if (this.nextState === 'start') {
         state = state.start();
-    } else if (this.thenRestart) {
+    } else if (this.nextState === 'restart') {
         state = state.restart();
     }
     return state;
+};
+
+Stopping.prototype.cancelForceStopTimeout = function () {
+    if (this.forceStopHandle) {
+        clearTimeout(this.forceStopHandle);
+        this.forceStopHandle = null;
+        this.forceStopAt = null;
+    }
 };
 
 Stopping.prototype.handleForceStopTimeout = function () {
@@ -650,7 +727,7 @@ Stopping.prototype.handleForceStopTimeout = function () {
     this.forceStopHandle = null;
     if (typeof this.forceStopDelay === 'number') {
         logger.debug('lost patience with stopping worker - forcing shutdown', {});
-        worker.do('forceStop');
+        worker.forceStop();
     } else {
         logger.debug('worker will not be forced to shut down - workerForceStopDelay not configured', {
             id: worker.id
@@ -658,9 +735,7 @@ Stopping.prototype.handleForceStopTimeout = function () {
     }
 };
 
-// The pulse is ignored until the process stopped.
-// In the standby state, pulses are unexpected and would throw a
-// non-existing method error.
+// The pulse is ignored until the process has stopped.
 Stopping.prototype.handlePulse = function () {
 };
 
