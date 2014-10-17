@@ -473,11 +473,9 @@ Standby.prototype.handleStop = function () {
     return this;
 };
 
+// In practice, pulse messages may be received after a worker process dies.
+// No action required in this state.
 Standby.prototype.handlePulse = function () {
-    throw new Error(
-        'Assertion failed: should not receive a pulse message from a worker ' +
-        'process while worker supervisor is standing by'
-    );
 };
 
 
