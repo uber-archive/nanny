@@ -16,8 +16,9 @@ var supervisor = new ClusterSupervisor({
             ROLE: logicalId
         };
     },
-    workerForceStopDelay: 5000
-})
+    workerForceStopDelay: 5000,
+    workerRestartDelay: 1000
+});
 
 supervisor.start();
 
