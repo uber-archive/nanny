@@ -172,6 +172,7 @@ ClusterSupervisor.prototype._initMaster = function _initMaster () {
     TERM_SIGNALS.forEach(function (signal) {
         process.once(signal, function () {
             this.logger.info('cluster master received signal...killing workers', {
+                title: process.title,
                 signal: signal
             });
             self.stop(function () {
@@ -296,7 +297,7 @@ ClusterSupervisor.prototype.checkForFullStop = function () {
     var activeWorkerCount = this.countActiveWorkers();
     var activeLoadBalancerCount = this.countActiveLoadBalancers();
     if (activeWorkerCount === 0 && activeLoadBalancerCount === 0) {
-        this.logger.debug('cluster now standing by', {});
+        this.logger.debug('cluster now standing by', {title: process.title});
         this.emit('standby');
     }
 };
