@@ -296,6 +296,11 @@ ClusterSupervisor.prototype.handleLoadBalancerStandby = function (loadBalancer) 
 ClusterSupervisor.prototype.checkForFullStop = function () {
     var activeWorkerCount = this.countActiveWorkers();
     var activeLoadBalancerCount = this.countActiveLoadBalancers();
+    this.logger.debug('cluster status', {
+        title: process.title,
+        activeWorkerCount: activeWorkerCount,
+        activeLoadBalancerCount: activeLoadBalancerCount
+    });
     if (activeWorkerCount === 0 && activeLoadBalancerCount === 0) {
         this.logger.debug('cluster now standing by', {title: process.title});
         this.emit('standby');

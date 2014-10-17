@@ -726,17 +726,14 @@ Stopping.prototype.handleForceStopTimeout = function () {
     var worker = this.worker;
     var logger = worker.logger;
     this.forceStopHandle = null;
-    if (typeof this.forceStopDelay === 'number') {
-        logger.warn('lost patience with stopping worker - forcing shutdown', {});
-        worker.forceStop();
-    } else {
-        logger.warn('worker will not be forced to shut down - workerForceStopDelay not configured', {
-            id: worker.id
-        });
-    }
+    logger.warn('lost patience with stopping worker - forcing shutdown', {
+        id: this.worker.id,
+        pid: this.worker.process.pid
+    });
+    worker.forceStop();
 };
 
-// The pulse is ignored until the process has stopped.
+// No action required during stopping state if we receive a health report.
 Stopping.prototype.handlePulse = function () {
 };
 
