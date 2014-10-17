@@ -170,7 +170,7 @@ ClusterSupervisor.prototype._initMaster = function _initMaster () {
     }, this);
 
     TERM_SIGNALS.forEach(function (signal) {
-        process.on(signal, function () {
+        process.once(signal, function () {
             this.logger.info('cluster master received signal...killing workers', {
                 signal: signal
             });
