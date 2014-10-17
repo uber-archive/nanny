@@ -209,7 +209,7 @@ WorkerSupervisor.prototype.spawn = function () {
     /* TODO inject --abort_on_uncaught_exception to instruct V8 to dump core if
      * it hits an uncaught exception. */
     var workerArgs = spec.args || [];
-    var workerEnv = this.createEnvironment();
+    var workerEnv = this.createEnvironment(this.id);
     var workerOptions = {
         cwd: spec.cwd,
         env: workerEnv,
@@ -260,7 +260,6 @@ WorkerSupervisor.prototype.kill = function (signal) {
 
 // Internal method, called by a state when a child process is confirmed dead.
 WorkerSupervisor.prototype.fullStop = function () {
-    this.process = null;
     this.emit('stop', this);
 };
 
@@ -470,6 +469,12 @@ Standby.prototype.cancelRestart = function () {
         this.startDelayHandle = null;
         this.startingAt = null;
     }
+};
+
+Standby.prototype.handleStop = function () {
+    this.logger.error('worker unexpectedly stopped in standby state', {
+        id: this.worker.id
+    });
 };
 
 Standby.prototype.handlePulse = function () {
@@ -727,10 +732,10 @@ Stopping.prototype.handleForceStopTimeout = function () {
     var logger = worker.logger;
     this.forceStopHandle = null;
     if (typeof this.forceStopDelay === 'number') {
-        logger.debug('lost patience with stopping worker - forcing shutdown', {});
+        logger.warn('lost patience with stopping worker - forcing shutdown', {});
         worker.forceStop();
     } else {
-        logger.debug('worker will not be forced to shut down - workerForceStopDelay not configured', {
+        logger.warn('worker will not be forced to shut down - workerForceStopDelay not configured', {
             id: worker.id
         });
     }

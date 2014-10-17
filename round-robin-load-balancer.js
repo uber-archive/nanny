@@ -111,7 +111,7 @@ RoundRobinLoadBalancer.prototype.start = function () {
         this.logger.debug('listening for connections on behalf of workers', {
             port: this.port
         });
-        this.server.listen(this.port, this.address, this.backlog);
+        this.server.listen(this.port || 0, this.address, this.backlog);
 
     } else if (this.state === 'stopping') {
         this.restart = true;
