@@ -8,7 +8,6 @@ test('init ClusterSupervisor with logical IDs', function (assert) {
     var supervisor = new ClusterSupervisor({
         respawnWorkerCount: 1,
         exec: path.join(__dirname, '/mock-server.js'),
-        numCPUs: 8,
         logicalIds: [11, 12, 13, 14, 15, 16, 17, 18]
     });
     supervisor.start();

@@ -55,9 +55,6 @@ function ClusterSupervisor(spec) {
     this.loadBalancers = {}; // port to LoadBalancer
 
     if (!spec.exec) throw new Error('missing exec');
-    if (Array.isArray(spec.logicalIds) && spec.logicalIds.length !== this.numCPUs) {
-        throw new Error('mismatching logicalIds length and numCPUs');
-    }
 
     // Event handlers bound to this instance
     this.handleWorkerListenRequest = this.handleWorkerListenRequest.bind(this);
@@ -165,14 +162,12 @@ ClusterSupervisor.prototype._initMaster = function _initMaster () {
 
     this.logger.info('initing master', {
         title: process.title,
-        numCPUs: this.numCPUs
+        logicalIds: this.logicalIds
     });
 
-    for(var i = 0; i < this.numCPUs; i++) {
-        var logicalId;
-        logicalId = this.logicalIds[i] || i;
+    this.logicalIds.forEach(function (logicalId) {
         this._spawnWorker(logicalId);
-    }
+    }, this);
 
     TERM_SIGNALS.forEach(function (signal) {
         process.on(signal, function () {
@@ -304,6 +299,30 @@ ClusterSupervisor.prototype.checkForFullStop = function () {
         this.logger.debug('cluster now standing by', {});
         this.emit('standby');
     }
+};
+
+ClusterSupervisor.prototype.configureLogicalIds = function (spec) {
+    var hasLogicalIds = Array.isArray(spec.logicalIds);
+    var hasNumCPUs = typeof spec.numCPUs !== 'undefined';
+    if (hasLogicalIds && hasNumCPUs) {
+        throw new Error('Can\'t configure ClusterSupervisor with both logicalIds and numCPUs. Pick one');
+    } else if (hasLogicalIds) {
+        return spec.logicalIds;
+    } else if (hasNumCPUs) {
+        return ClusterSupervisor.range(spec.numCPUs);
+    } else {
+        return os.cpus().map(function (cpu, index) {
+            return index;
+        });
+    }
+};
+
+ClusterSupervisor.range = function (length) {
+    var range = [];
+    for (var index = 0; index < length; index++) {
+        range.push(index);
+    }
+    return range;
 };
 
 module.exports = ClusterSupervisor;
