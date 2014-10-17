@@ -64,7 +64,7 @@ util.inherits(WorkerSupervisor, events.EventEmitter);
 // The `do` method of a state returns the next state, even if that state does
 // not change.
 // Every state must handle every command.
-WorkerSupervisor.prototype.do = function (command) {
+WorkerSupervisor.prototype.do = function (command, arg) {
     var former = this.state;
     if (!former[command]) {
         throw new Error('Assertion failed: command not supported: ' + command);
@@ -73,7 +73,7 @@ WorkerSupervisor.prototype.do = function (command) {
     // supervisor state machine.**
     // Each command method of every state object is responsible for returning
     // the next state of the worker supervisor, albeit the same state.
-    this.state = former[command]();
+    this.state = former[command](arg);
     if (this.state !== former) {
         this.logger.debug('worker state change', this.inspect());
         this.emit(this.state.name, this);
@@ -523,13 +523,13 @@ Running.prototype.start = function () {
 Running.prototype.stop = function () {
     this.worker.kill('SIGTERM');
     this.clearUnhealthyTimeout();
-    return new Stopping(this.worker);
+    return new Stopping(this.worker, this.startedAt);
 };
 
 Running.prototype.forceStop = function () {
     this.worker.kill('SIGKILL');
     this.clearUnhealthyTimeout();
-    return new Stopping(this.worker);
+    return new Stopping(this.worker, this.startedAt);
 };
 
 // SIGABRT causes a process to dump core.
@@ -540,7 +540,7 @@ Running.prototype.dump = function () {
      * new one to prevent blocking a new worker creation. This may be
      * necessary for preventing denial of service. */
     this.clearUnhealthyTimeout();
-    return new Stopping(this.worker);
+    return new Stopping(this.worker, this.startedAt);
 };
 
 Running.prototype.restart = function () {
@@ -561,7 +561,7 @@ Running.prototype.reload = function () {
 // We transition to the stopping state to debug.
 // The process must be stopped manually to transition back to standby.
 Running.prototype.debug = function () {
-    return new Stopping(this.worker).debug();
+    return new Stopping(this.worker, this.startedAt).debug();
 };
 
 Running.prototype.handleStop = function () {
@@ -602,31 +602,26 @@ Running.prototype.handlePulse = function () {
 
 // ### Stopping state
 
-function Stopping(worker, forceStopDelay) {
+function Stopping(worker, startedAt) {
     var spec = worker.spec;
     var logger = worker.logger;
     this.worker = worker;
     this.nextState = null;
     this.isDebugging = false;
-    this.stoppedAt = Date.now();
+    this.startedAt = startedAt;
+    this.stopRequestedAt = Date.now();
     this.forceStopHandle = null;
     this.forceStopAt = null;
     this.forcedStop = false;
-    this.forceStopDelay = forceStopDelay || spec.forceStopDelay;
+    this.forceStopDelay = spec.forceStopDelay;
 
-    // The force stop delay does get overridden to Inifinity in some cases.
-    forceStopDelay = forceStopDelay || spec.forceStopDelay;
     // Schedule a forceful shutdown if graceful shutdown does not complete in a
     // timely fashion.
-    logger.debug('worker force stop timeout scheduled', {
-        id: worker.id,
-        forceStopDelay: this.forceStopDelay
-    });
-    if (forceStopDelay < Infinity) {
-        this.forceStopAt = Date.now() + forceStopDelay;
+    if (this.forceStopDelay < Infinity) {
+        this.forceStopAt = Date.now() + this.forceStopDelay;
         this.forceStopHandle = setTimeout(
             this.handleForceStopTimeout.bind(this),
-            forceStopDelay
+            this.forceStopDelay
         );
     }
 }
@@ -639,7 +634,7 @@ Stopping.prototype.inspect = function () {
         state: 'stopping',
         isDebugging: this.isDebugging,
         pid: this.worker.process.pid,
-        stoppedAt: this.stoppedAt,
+        stopRequestedAt: this.stopRequestedAt,
         forceStopAt: this.forceStopAt,
         forcedStop: this.forcedStop,
         health: this.worker.health
@@ -707,7 +702,22 @@ Stopping.prototype.debug = function () {
 // scheduled state stransitions.
 // Particularly, we cancel the forced-stop timer, and restart if that is
 // running is the target state.
-Stopping.prototype.handleStop = function () {
+Stopping.prototype.handleStop = function (why) {
+    var stoppedAt = Date.now();
+    this.worker.logger.debug('worker post mortem', {
+        id: this.worker.id,
+        pid: this.worker.process.pid,
+        code: why.code,
+        signal: why.signal,
+        error: why.error,
+        startedAt: new Date(this.startedAt).toISOString(),
+        stopRequestedAt: new Date(this.stopRequestedAt).toISOString(),
+        stoppedAt: new Date(this.stopRequestedAt).toISOString(),
+        forcedStop: this.forcedStop,
+        upTime: stoppedAt - this.startedAt,
+        teardownTime: stoppedAt - this.stopRequestedAt,
+        lastKnownHealth: this.worker.health
+    });
     this.worker.fullStop();
     this.cancelForceStopTimeout();
     var state = new Standby(this.worker);
