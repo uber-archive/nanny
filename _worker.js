@@ -315,8 +315,11 @@ Server.prototype.close = function (callback) {
     // This prevents any further connections from falling into this server
     // instance.
     delete servers[this._port];
-    /* TODO emit 'close' event when all open connections are closed. */
-    this.emit('close');
+    var self = this;
+    /* TODO emit 'close' event only when all open connections are closed. */
+    process.nextTick(function () {
+        self.emit('close');
+    });
 };
 
 Server.prototype._accept = function (connection) {
