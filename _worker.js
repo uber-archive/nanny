@@ -255,7 +255,8 @@ Server.prototype.listen = function () {
     } else if (
         typeof arguments[1] === 'undefined' ||
         typeof arguments[1] === 'function' ||
-        typeof arguments[1] === 'number'
+        typeof arguments[1] === 'number' ||
+        arguments[1] === null
     ) {
         // The first argument is the port, no IP given.
         listen(self, null, port, 4, backlog);
@@ -265,9 +266,9 @@ Server.prototype.listen = function () {
         listenAfterLookup(port, arguments[1], backlog);
     }
 
-    function listenAfterLookup(/*port, address, backlog, exclusive*/) {
+    function listenAfterLookup(port, address/*, backlog, exclusive*/) {
         /* TODO We need to reason out whether the worker or cluster will issue the DNS request. */
-        throw new Error('Can\'t listen on an interface and port in cluster mode yet');
+        throw new Error('Can\'t listen on an interface and port in cluster mode yet: ' + address + ':' + port);
         /*
         require('dns').lookup(address, function(err, ip, addressType) {
             if (err) {
