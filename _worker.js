@@ -64,6 +64,11 @@ function handleStart(modulePath, givenPulse) {
 
 function handleAccept(port, handle) {
     var server = servers[port];
+    if (!handle) {
+        // We hit this case only when we receive a connection message from the cluster,
+        // but the cluster is shutting down.
+        return;
+    }
     if (server) {
         server._accept(handle);
     } else {
