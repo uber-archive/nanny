@@ -2,6 +2,8 @@
 
 // This is a client that produces load on hodor-net-server.
 
+process.title = 'nodejs hodor client';
+
 var net = require('net');
 
 var BACKOFF = 1000;
@@ -44,5 +46,10 @@ function next() {
 
 }
 
+// Five concurrent requests
+next();
+next();
+next();
+next();
 next();
 

@@ -3,6 +3,8 @@
 // This is a socket server that responds to all connections with its own name
 // (process logical identifier)
 
+process.title = 'nodejs hodor server';
+
 var net = require('net');
 
 var server = net.createServer();
