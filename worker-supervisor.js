@@ -421,7 +421,6 @@ Standby.prototype.restart = function () {
     var restartDelay; // An undefined restart delay implies remain in stand by indefinitely
     var worker = this.worker;
     var spec = worker.spec;
-    var logger = worker.logger;
 
     if (spec.respawnCount !== 0)  { // -1 and Infinity both imply indefinite restarts
         if (spec.respawnCount > 0) { // > 0 implies finite restarts
@@ -432,14 +431,7 @@ Standby.prototype.restart = function () {
 
     if (restartDelay) {
         this.startingAt = Date.now() + restartDelay;
-        logger.info('delaying worker restart', {
-            id: worker.id,
-            startingAt: this.startingAt
-        });
         this.startDelayHandle = setTimeout(function () {
-            logger.info('restarting worker now', {
-                id: worker.id
-            });
             worker.start();
         }, restartDelay);
     }
