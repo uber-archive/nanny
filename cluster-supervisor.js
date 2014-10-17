@@ -6,14 +6,13 @@
 // The load balancers distribute connections to workers that are listening on a
 // shared port.
 
-var debuglog = require('debuglog');
 var os = require('os');
 var events = require('events');
 var util = require('util');
 var WorkerSupervisor = require('./worker-supervisor');
 var LoadBalancer = require('./round-robin-load-balancer');
 
-var logger = debuglog('clustermon');
+var logger; // lazy = debuglog('clustermon');
 var TERM_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGQUIT'];
 
 function ClusterSupervisor(spec) {
@@ -28,16 +27,25 @@ function ClusterSupervisor(spec) {
         spec.respawnWorkerCount :
         -1;
     this.initMaster = spec.initMaster; // Post-initialization hook, receives this, but no arguments
-    this.numCPUs = spec.numCPUs || os.cpus().length;
-    this.logicalIds = spec.logicalIds || [];
+
+    this.logicalIds = this.configureLogicalIds(spec);
+
     this.exec = spec.exec; // Worker module path TODO rename modulePath
     this.args = spec.args || []; // Worker arguments TODO rename argv or something
-    this.logger = spec.logger || {
-        error: logger,
-        warn: logger,
-        info: logger,
-        debug: logger
-    };
+
+    if (!spec.logger) {
+        if (!logger) {
+            logger = require('debuglog')('clustermon');
+        }
+        spec.logger = {
+            error: logger,
+            warn: logger,
+            info: logger,
+            debug: logger
+        };
+    }
+    this.logger = spec.logger;
+
     // The period between when a server errors out and stops and when we
     // attempt to restart it:
     this.serverRestartDelay = spec.serverRestartDelay;
