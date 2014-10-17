@@ -5,6 +5,8 @@
 process.title = 'nodejs hodor client';
 
 var net = require('net');
+var debuglog = require('debuglog');
+var log = debuglog('hodor-net-client');
 
 var BACKOFF = 1000;
 
@@ -20,7 +22,7 @@ function next() {
     client.setEncoding('utf-8');
 
     client.on('error', function (error) {
-        console.log('unexpected error', error.message);
+        log('unexpected error', error.message);
         setTimeout(next, BACKOFF);
     });
     client.on('data', function (_data) {
@@ -31,13 +33,13 @@ function next() {
     });
     client.on('end', function () {
         if (!connected) {
-            console.log('unexpected end before connection');
+            log('unexpected end before connection');
             setTimeout(next, BACKOFF);
         } else if (data !== 'HODOR') {
-            console.log('unexpected response', data);
+            log('unexpected response', JSON.stringify(data));
             setTimeout(next, BACKOFF);
         } else if (!finished) {
-            console.log('expected finish before end');
+            log('expected finish before end');
             setTimeout(next, BACKOFF);
         } else {
             next();
