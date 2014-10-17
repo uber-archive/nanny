@@ -459,7 +459,7 @@ Standby.prototype.cancelRestart = function () {
 };
 
 Standby.prototype.handleStop = function () {
-    this.logger.error('worker unexpectedly stopped in standby state', {
+    this.worker.logger.error('worker unexpectedly stopped in standby state', {
         id: this.worker.id
     });
     return this;
