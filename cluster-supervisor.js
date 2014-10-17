@@ -62,6 +62,8 @@ function ClusterSupervisor(spec) {
     this.handleWorkerBounce = this.handleWorkerBounce.bind(this);
     this.handleWorkerStandby = this.handleWorkerStandby.bind(this);
     this.handleLoadBalancerStandby = this.handleLoadBalancerStandby.bind(this);
+    this.checkForFullStop = this.checkForFullStop.bind(this);
+
 }
 
 util.inherits(ClusterSupervisor, events.EventEmitter);
