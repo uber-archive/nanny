@@ -598,7 +598,6 @@ Running.prototype.handlePulse = function () {
 
 function Stopping(worker, startedAt) {
     var spec = worker.spec;
-    var logger = worker.logger;
     this.worker = worker;
     this.nextState = null;
     this.isDebugging = false;

@@ -20,7 +20,7 @@ function RoundRobinLoadBalancer(spec) {
     this.state = 'standby';
     // A flag that indicates that although this is 'stopping', it should
     // immediately restart once it has fully stopped.
-    this.restart = false;
+    this.nextState = null;
 
     // The worker supervisors that are participating in this load balancer, in
     // the order that they will be sent connections.
@@ -114,7 +114,7 @@ RoundRobinLoadBalancer.prototype.start = function () {
         this.server.listen(this.port || 0, this.requestedAddress, this.requestedBacklog);
 
     } else if (this.state === 'stopping') {
-        this.restart = true;
+        this.nextState = 'starting';
     }
     // Nothing to do if 'running'
     // Nothing to do if 'starting'
@@ -211,8 +211,9 @@ RoundRobinLoadBalancer.prototype.handleClose = function () {
         this.logger.debug('shared server closed', {
             port: this.port
         });
-        if (this.restart !== null) {
-            setTimeout(this.handleRestartTimeout, this.restartDelay);
+        if (this.nextState === 'starting') {
+            this.restartTimeoutHandle = setTimeout(this.handleRestartTimeout, this.restartDelay);
+            this.nextState = null;
         }
     }
 };
