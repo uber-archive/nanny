@@ -199,11 +199,6 @@ WorkerSupervisor.prototype.createEnvironment = function () {
 
 // Internal method for starting the worker subprocess, initiated by a state.
 WorkerSupervisor.prototype.spawn = function () {
-    var child = this.process;
-    if (child) {
-        throw new Error('Can\'t start with an existing child process');
-    }
-
     var spec = this.spec;
 
     /* TODO inject --abort_on_uncaught_exception to instruct V8 to dump core if
