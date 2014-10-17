@@ -1,14 +1,14 @@
 {
-  "name": "clustermon",
+  "name": "nanny",
   "version": "1.0.0",
   "description": "Scaffolding for node cluster",
   "keywords": [],
   "author": "tom <tom@uber.com>",
-  "repository": "git://github.com/uber/clustermon.git",
+  "repository": "git://github.com/uber/nanny.git",
   "main": "index",
-  "homepage": "https://github.com/uber/clustermon",
+  "homepage": "https://github.com/uber/nanny",
   "bugs": {
-    "url": "https://github.com/uber/clustermon/issues",
+    "url": "https://github.com/uber/nanny/issues",
     "email": "tom@uber.com"
   },
   "dependencies": {
@@ -27,7 +27,7 @@
   "licenses": [
     {
       "type": "MIT",
-      "url": "http://github.com/uber/clustermon/raw/master/LICENSE"
+      "url": "http://github.com/uber/nanny/raw/master/LICENSE"
     }
   ],
   "scripts": {

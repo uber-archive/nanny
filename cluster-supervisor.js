@@ -12,7 +12,7 @@ var util = require('util');
 var WorkerSupervisor = require('./worker-supervisor');
 var LoadBalancer = require('./round-robin-load-balancer');
 
-var logger; // lazy = debuglog('clustermon');
+var logger; // lazy = require('debuglog')('nanny');
 var TERM_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGQUIT'];
 
 function ClusterSupervisor(spec) {
@@ -35,7 +35,7 @@ function ClusterSupervisor(spec) {
 
     if (!spec.logger) {
         if (!logger) {
-            logger = require('debuglog')('clustermon');
+            logger = require('debuglog')('nanny');
         }
         spec.logger = {
             error: logger,
@@ -92,7 +92,7 @@ ClusterSupervisor.prototype.stop = function (callback) {
         this.once('standby', callback);
         // This will emit standby immediately if the cluster is already fully
         // stopped.
-        this.checkForFullStop();
+        process.nextTick(this.checkForFullStop);
     }
 };
 

@@ -1,6 +1,7 @@
 
-# clustermon
+# Nanny
 
+In some sense, a nanny watches kids.
 This module provides a cluster supervisor.
 A cluster is a group of worker processes that share a server or servers.
 The cluster supervisor:
@@ -28,7 +29,7 @@ Any attempt to listen for incomming connections with a `net`, `http`, or
 
 ```js
 // launcher.js
-var ClusterSupervisor = require("clustermon");
+var ClusterSupervisor = require("nanny");
 var supervisor = new ClusterSupervisor({
 
     exec: path.join(__dirname, "worker.js"),
@@ -92,7 +93,7 @@ var supervisor = new ClusterSupervisor({
     },
 
     // Override the logger for the cluster. By default, we create a debuglog
-    // named 'clustermon' visible with `NODE_DEBUG=clustermon`.
+    // named 'nanny' visible with `NODE_DEBUG=nanny`.
     logger: console
 
 });
@@ -138,7 +139,7 @@ This module abstracts logic for spawning workers via node cluster.
 
 ## Installation
 
-`npm install clustermon`
+`npm install nanny`
 
 ## Tests
 

@@ -11,7 +11,7 @@ var supervisor = new ClusterSupervisor({
     logicalIds: ['rock', 'hard-place'],
     createEnvironment: function (logicalId) {
         return {
-            NODE_DEBUG: 'clustermon',
+            NODE_DEBUG: process.env.NODE_DEBUG,
             HODOR_PORT: 2020,
             ROLE: logicalId
         };
