@@ -14,6 +14,7 @@ function next() {
     process.stderr.write('.');
     var connected = false;
     var data = "";
+    var done = false;
 
     var client = net.connect(+process.env.HODOR_PORT, 'localhost', function () {
         connected = true;
@@ -32,14 +33,18 @@ function next() {
     client.on('end', end);
 
     function end() {
-        if (!connected) {
-            log('unexpected end before connection');
-            setTimeout(next, BACKOFF);
-        } else if (data !== 'HODOR') {
-            log('unexpected response', JSON.stringify(data));
-            setTimeout(next, BACKOFF);
-        } else {
-            next();
+        // Should be called once for 'end', once for 'finish'.
+        if (!done) {
+            done = true;
+            if (!connected) {
+                log('unexpected end before connection');
+                setTimeout(next, BACKOFF);
+            } else if (data !== 'HODOR') {
+                log('unexpected response', JSON.stringify(data));
+                setTimeout(next, BACKOFF);
+            } else {
+                next();
+            }
         }
     }
 
