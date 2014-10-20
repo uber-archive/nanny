@@ -257,6 +257,11 @@ Server.prototype.listen = function () {
         typeof arguments[1] === 'function' ||
         typeof arguments[1] === 'number' ||
         arguments[1] === null
+        // The null case does not exist in Node.js. However, for some reason,
+        // listen(port, address, backlog) where any argument may be null does
+        // work on Node.js. Since the RR load balancer uses this pattern, this
+        // condition is necessary to self host, as verified by running
+        // test/rock-and-hard-place.js.
     ) {
         // The first argument is the port, no IP given.
         listen(self, null, port, 4, backlog);
