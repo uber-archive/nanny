@@ -1,7 +1,9 @@
-var Clustermon = require('../index.js');
+'use strict';
+
+var ClusterSupervisor = require('../cluster-supervisor.js');
 var test = require('tape');
 
-test('Clustermon is a function', function (assert) {
-    assert.strictEqual(typeof Clustermon, 'function');
+test('ClusterSupervisor is a function', function (assert) {
+    assert.strictEqual(typeof ClusterSupervisor, 'function');
     assert.end();
 });

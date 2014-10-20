@@ -41,6 +41,7 @@ node_modules/
 dump.rdb
 *.tap
 *.xml
+/docs
 
 # OS generated files #
 ######################

@@ -6,8 +6,8 @@
   "forin": true,
   "immed": true,
   "indent": 4,
-  "latedef": true,
-  "newcap": true,
+  "latedef": "nofunc",
+  "newcap": false,
   "noarg": true,
   "nonew": true,
   "plusplus": false,
@@ -15,9 +15,9 @@
   "regexp": false,
   "undef": true,
   "unused": true,
-  "strict": false,
+  "globalstrict": true,
+  "strict": true,
   "trailing": true,
-  "node": true,
   "noempty": true,
   "maxdepth": 4,
   "maxparams": 4,
@@ -27,6 +27,13 @@
     "setTimeout": true,
     "clearTimeout": true,
     "setInterval": true,
-    "clearInterval": true
+    "clearInterval": true,
+    "require": false,
+    "module": false,
+    "exports": true,
+    "global": false,
+    "process": true,
+    "__dirname": false,
+    "__filename": false
   }
 }
