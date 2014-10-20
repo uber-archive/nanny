@@ -12,7 +12,10 @@ var util = require('util');
 var WorkerSupervisor = require('./worker-supervisor');
 var LoadBalancer = require('./round-robin-load-balancer');
 
-var logger; // lazy = require('debuglog')('nanny');
+// The default logger
+var log = require('debuglog')('nanny');
+var logger = {error: log, warn: log, info: log, debug: log};
+
 var TERM_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGQUIT'];
 
 function ClusterSupervisor(spec) {
@@ -33,18 +36,7 @@ function ClusterSupervisor(spec) {
     this.exec = spec.exec; // Worker module path TODO rename modulePath
     this.args = spec.args || []; // Worker arguments TODO rename argv or something
 
-    if (!spec.logger) {
-        if (!logger) {
-            logger = require('debuglog')('nanny');
-        }
-        spec.logger = {
-            error: logger,
-            warn: logger,
-            info: logger,
-            debug: logger
-        };
-    }
-    this.logger = spec.logger;
+    this.logger = spec.logger || logger;
 
     // The period between when a server errors out and stops and when we
     // attempt to restart it:
