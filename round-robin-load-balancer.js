@@ -17,6 +17,14 @@ function RoundRobinLoadBalancer(spec) {
     // The period to wait before attempting to restart a server that dies:
     this.restartDelay = spec.restartDelay || 0;
 
+    // One of 'standby', 'starting', 'running', 'stopping'.
+    // State machine looks like:
+    // - 'standby': start() causes server.listen() -> 'starting'
+    // - 'starting': server 'listening' -> 'running'
+    // - 'running': stop() causes server.close() -> 'stopping'
+    // - 'running': server 'close' -> 'standby'
+    // - 'running': server 'error' -> 'standby'
+    // - 'stopping': server 'close' -> 'standby'
     this.state = 'standby';
     // A flag that indicates that although this is 'stopping', it should
     // immediately restart once it has fully stopped.
@@ -184,9 +192,11 @@ RoundRobinLoadBalancer.prototype.handleError = function (error) {
         this.stop();
     } else if (this.state === 'starting') {
         this.stop();
+    } else { // 'standby'
+        // The Node.js server should not emit an 'error' when we are in
+        // 'standby' state.
+        throw error;
     }
-    // The Node.js server should not emit an 'error' when we are in 'standby'
-    // state.
 };
 
 RoundRobinLoadBalancer.prototype.handleConnection = function (connection) {
@@ -205,7 +215,12 @@ RoundRobinLoadBalancer.prototype.handleConnection = function (connection) {
 };
 
 RoundRobinLoadBalancer.prototype.handleClose = function () {
-    if (this.state === 'stopping') {
+    // A 'close' event might be in response to a requested server close or a
+    // consequence of an error.
+    // The order of 'error' and 'close' events is not certain.
+    // As such, a 'close' event might occur while in either 'stopping' or
+    // 'running' states.
+    if (this.state === 'stopping' || this.state === 'running') {
         this.goto('standby');
 
         this.logger.debug('shared server closed', {
@@ -215,6 +230,8 @@ RoundRobinLoadBalancer.prototype.handleClose = function () {
             this.restartTimeoutHandle = setTimeout(this.handleRestartTimeout, this.restartDelay);
             this.nextState = null;
         }
+    } else { // 'standby'
+        throw new Error('Assertion failed: close event not expected when server is not running');
     }
 };
 
