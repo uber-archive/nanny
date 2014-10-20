@@ -309,15 +309,22 @@ ClusterSupervisor.prototype.checkForFullStop = function () {
     }
 };
 
+// Called by the constructor to funnel the various configuration cases into an
+// array of logical identifiers for each worker.
+// The user may provide either their own logicalIds array, a number of CPUs,
+// or neither.
+// If the user provides neither, we infer the number of CPUs.
+// A number of CPUs produces a range of logical identifiers in the range [0,
+// workerCount).
 ClusterSupervisor.prototype.configureLogicalIds = function (spec) {
     var hasLogicalIds = Array.isArray(spec.logicalIds);
-    var hasNumCPUs = typeof spec.numCPUs !== 'undefined';
+    var hasNumCPUs = typeof spec.workerCount !== 'undefined';
     if (hasLogicalIds && hasNumCPUs) {
-        throw new Error('Can\'t configure ClusterSupervisor with both logicalIds and numCPUs. Pick one');
+        throw new Error('Can\'t configure ClusterSupervisor with both logicalIds and workerCount. Pick one');
     } else if (hasLogicalIds) {
         return spec.logicalIds;
     } else if (hasNumCPUs) {
-        return ClusterSupervisor.range(spec.numCPUs);
+        return ClusterSupervisor.range(spec.workerCount);
     } else {
         return os.cpus().map(function (cpu, index) {
             return index;
@@ -325,6 +332,7 @@ ClusterSupervisor.prototype.configureLogicalIds = function (spec) {
     }
 };
 
+// A utility for producing a half-open interval [0, length) as an array.
 ClusterSupervisor.range = function (length) {
     var range = [];
     for (var index = 0; index < length; index++) {

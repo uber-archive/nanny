@@ -33,7 +33,7 @@ var ClusterSupervisor = require("nanny");
 var supervisor = new ClusterSupervisor({
 
     exec: path.join(__dirname, "worker.js"),
-    numCPUs: 8,                 // Number of workers to spawn. Default is # cores.
+    workerCount: 8,             // Number of workers to spawn. Default is # cores.
     logicalIds: [5, 6, 7]       // Give workers an env variable
                                 // "PROCESS_LOGICAL_ID" based on the values in
                                 // the array and the order of the array.

@@ -8,7 +8,7 @@ test('init ClusterSupervisor', function (assert) {
     var supervisor = new ClusterSupervisor({
         respawnWorkerCount: 0,
         exec: path.join(__dirname, 'mock-server.js'),
-        numCPUs: 8
+        workerCount: 8
     });
     supervisor.start();
 
