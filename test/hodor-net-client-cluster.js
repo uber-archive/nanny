@@ -10,9 +10,9 @@ var supervisor = new ClusterSupervisor({
     numCPUs: 4,
     pulse: 100,
     unhealthyTimeout: 5e3,
-    createEnvironment: function () {
+    createEnvironment: function (name) {
         return {
-            HODOR_NAME: this.id,
+            HODOR_NAME: name,
             HODOR_PORT: process.env.HODOR_PORT || 0,
             NODE_DEBUG: process.env.NODE_DEBUG
         };

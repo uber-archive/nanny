@@ -78,9 +78,9 @@ var supervisor = new ClusterSupervisor({
 
     // Override the method used to create the worker environment.
     // `this` is a worker supervisor and `this.id` is its logical id.
-    createEnvironment: function () {
+    createEnvironment: function (logicalId) {
         return {
-            PROCESS_LOGICAL_ID: this.id
+            PROCESS_LOGICAL_ID: logicalId
         };
     },
 
