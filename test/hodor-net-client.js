@@ -6,13 +6,13 @@ process.title = 'nodejs hodor client';
 
 var net = require('net');
 var debuglog = require('debuglog');
-var log = debuglog('hodor-net-client');
+var log = debuglog('hodorclient');
 
 var BACKOFF = 1000;
 
 function next() {
+    process.stderr.write('.');
     var connected = false;
-    var finished = false;
     var data = "";
 
     var client = net.connect(+process.env.HODOR_PORT, 'localhost', function () {
@@ -28,23 +28,20 @@ function next() {
     client.on('data', function (_data) {
         data += _data;
     });
-    client.on('finish', function () {
-        finished = true;
-    });
-    client.on('end', function () {
+    client.on('finish', end);
+    client.on('end', end);
+
+    function end() {
         if (!connected) {
             log('unexpected end before connection');
             setTimeout(next, BACKOFF);
         } else if (data !== 'HODOR') {
             log('unexpected response', JSON.stringify(data));
             setTimeout(next, BACKOFF);
-        } else if (!finished) {
-            log('expected finish before end');
-            setTimeout(next, BACKOFF);
         } else {
             next();
         }
-    });
+    }
 
 }
 

@@ -13,7 +13,8 @@ var supervisor = new ClusterSupervisor({
     createEnvironment: function () {
         return {
             HODOR_NAME: this.id,
-            HODOR_PORT: process.env.HODOR_PORT || 0
+            HODOR_PORT: process.env.HODOR_PORT || 0,
+            NODE_DEBUG: process.env.NODE_DEBUG
         };
     },
     isHealthy: function (health) {
