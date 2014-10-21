@@ -17,6 +17,7 @@
 
 // Invariant: we must close a server before emitting an error.
 
+var Module = require('module');
 var net = require('net');
 var events = require('events');
 var util = require('util');
@@ -59,7 +60,7 @@ function handleStart(modulePath, givenPulse) {
     }
 
     // Start running the worker module.
-    require(modulePath);
+    Module._load(modulePath, null, true);
 }
 
 function handleAccept(port, handle) {
