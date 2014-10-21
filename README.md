@@ -94,7 +94,12 @@ var supervisor = new ClusterSupervisor({
 
     // Override the logger for the cluster. By default, we create a debuglog
     // named 'nanny' visible with `NODE_DEBUG=nanny`.
-    logger: console
+    logger: {
+        debug: console.log.bind(console),
+        warn: console.warn.bind(console),
+        error: console.error.bind(console),
+        info: consolea.info.bind(console)
+    }
 
 });
 
