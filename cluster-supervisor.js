@@ -33,8 +33,7 @@ function ClusterSupervisor(spec) {
 
     this.logicalIds = this.configureLogicalIds(spec);
 
-    this.exec = spec.exec; // Worker module path TODO rename modulePath
-    this.args = spec.args || []; // Worker arguments TODO rename argv or something
+    spec.workerPath = spec.workerPath || spec.exec; // XXX exec is deprecated
 
     this.logger = spec.logger || logger;
 
@@ -46,7 +45,7 @@ function ClusterSupervisor(spec) {
     this.workers = [];
     this.loadBalancers = {}; // port to LoadBalancer
 
-    if (!spec.exec) throw new Error('missing exec');
+    if (!spec.workerPath) throw new Error('missing workerPath');
 
     // Event handlers bound to this instance
     this.handleWorkerListenRequest = this.handleWorkerListenRequest.bind(this);
@@ -184,7 +183,8 @@ ClusterSupervisor.prototype._spawnWorker = function (logicalId) {
         id: logicalId,
         logger: this.logger,
         // Fork spec:
-        workerPath: spec.exec, // TODO rename exec to workerPath
+        workerPath: spec.workerPath,
+        workerArgv: spec.workerArgv,
         cwd: spec.cwd,
         encoding: spec.encoding,
         execPath: spec.execPath,
