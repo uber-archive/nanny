@@ -58,6 +58,9 @@ function handleStart(modulePath, givenPulse) {
         tick();
     }
 
+    // Leave no evidence. - Invader Zim
+    process.argv[1] = modulePath;
+
     // Start running the worker module.
     require(modulePath);
 }
