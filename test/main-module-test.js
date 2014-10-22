@@ -16,9 +16,7 @@ tape('main module should be worker module', function (assert) {
     supervisor.workers[0].process.on('message', function (message) {
         if (message.cmd === 'TEST_RESULT') {
             assert.ok(message.result, 'main module is the worker module');
-            supervisor.stop(function () {
-                assert.end();
-            });
+            supervisor.stop(assert.end);
         }
     });
 
