@@ -32,7 +32,8 @@ Any attempt to listen for incomming connections with a `net`, `http`, or
 var ClusterSupervisor = require("nanny");
 var supervisor = new ClusterSupervisor({
 
-    exec: path.join(__dirname, "worker.js"),
+    workerPath: path.join(__dirname, "worker.js"),
+    workerArgv: [],             // Arguments to pass to your worker.
     workerCount: 8,             // Number of workers to spawn. Default is # cores.
     logicalIds: [5, 6, 7]       // Give workers an env variable
                                 // "PROCESS_LOGICAL_ID" based on the values in

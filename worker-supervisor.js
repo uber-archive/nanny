@@ -203,7 +203,7 @@ WorkerSupervisor.prototype.spawn = function () {
 
     /* TODO inject --abort_on_uncaught_exception to instruct V8 to dump core if
      * it hits an uncaught exception. */
-    var workerArgs = spec.args || [];
+    var workerArgv = spec.workerArgv || [];
     var workerEnv = this.createEnvironment(this.id);
     var workerOptions = {
         cwd: spec.cwd,
@@ -213,7 +213,7 @@ WorkerSupervisor.prototype.spawn = function () {
         execArgv: spec.execArgv,
         silent: spec.silent,
     };
-    var worker = childProcess.fork(path.join(__dirname, '_worker'), workerArgs, workerOptions);
+    var worker = childProcess.fork(path.join(__dirname, '_worker'), workerArgv, workerOptions);
     this.process = worker;
 
     // Issue a command to the worker process requesting that it load the worker
