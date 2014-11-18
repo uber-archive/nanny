@@ -62,8 +62,7 @@ RoundRobinLoadBalancer.prototype.inspect = function () {
         state: this.state,
         port: this.port,
         address: this.address,
-        backlog: this.queue.length,
-        memoryUsage: process.memoryUsage()
+        backlog: this.queue.length
     };
 };
 
@@ -116,7 +115,7 @@ RoundRobinLoadBalancer.prototype.start = function () {
         server.on('error', this.handleError);
         server.on('close', this.handleClose);
 
-        this.logger.debug('listening for connections on behalf of workers', {
+        this.logger.debug('supervisor requesting to listen on port', {
             port: this.port
         });
         this.server.listen(this.port || 0, this.requestedAddress, this.requestedBacklog);
@@ -130,7 +129,7 @@ RoundRobinLoadBalancer.prototype.start = function () {
 
 RoundRobinLoadBalancer.prototype.stop = function (callback) {
     if (callback) {
-        if (this.state !== 'stopped') {
+        if (this.state !== 'standby') {
             this.once('standby', callback);
         } else {
             process.nextTick(callback);
@@ -155,7 +154,7 @@ RoundRobinLoadBalancer.prototype.handleListening = function () {
         this.goto('running');
 
         this.address = this.server.address();
-        this.logger.debug('server started on behalf of workers', {
+        this.logger.debug('supervisor received address to listen on port', {
             port: this.port,
             address: this.address
         });
@@ -166,7 +165,7 @@ RoundRobinLoadBalancer.prototype.handleListening = function () {
         }, this);
         this.flushConnectionQueue();
     } else if (this.state === 'stopping') {
-        this.logger.debug('server started listening after entering the stopping state - shutting down', {
+        this.logger.warn('supervisor shutting down server before confirmed to be listening', {
             port: this.port
         });
         // This will occur if we stop while starting.
@@ -181,7 +180,8 @@ RoundRobinLoadBalancer.prototype.handleListening = function () {
 };
 
 RoundRobinLoadBalancer.prototype.handleError = function (error) {
-    this.logger.debug('server emitted error', {
+    // TODO write code to recover from this error
+    this.logger.error('supervisor failed to listen', {
         port: this.port,
         error: error
     });
@@ -206,7 +206,9 @@ RoundRobinLoadBalancer.prototype.handleConnection = function (connection) {
         workerSupervisor.handleConnection(this.port, connection);
     } else { // starting, stopping
         this.queue.push(connection);
-        this.logger.debug('connection backlog', {
+        // TODO remove connections that are closed or errored, or old if the
+        // backlog is long.
+        this.logger.info('connection backlog', {
             port: this.port,
             length: this.queue.length,
             grew: true
@@ -223,7 +225,7 @@ RoundRobinLoadBalancer.prototype.handleClose = function () {
     if (this.state === 'stopping' || this.state === 'running') {
         this.goto('standby');
 
-        this.logger.debug('shared server closed', {
+        this.logger.info('supervisor stopped listening on port', {
             port: this.port
         });
         if (this.nextState === 'starting') {
@@ -246,6 +248,9 @@ RoundRobinLoadBalancer.prototype.handleRestartTimeout = function () {
 // starts empty, assuming that the shutdown removes all the workers from the
 // ring properly).
 RoundRobinLoadBalancer.prototype.flushConnectionQueue = function () {
+    // TODO this could cause a large number of connections to be sent to a
+    // single worker, if the load balancer and all workers are initially at
+    // standby and one worker becomes available.
     if (this.state === 'running' && this.ring.length) {
         this.queue.forEach(function (connection) {
             this.handleConnection(connection);
@@ -253,7 +258,8 @@ RoundRobinLoadBalancer.prototype.flushConnectionQueue = function () {
         this.queue.length = 0;
         this.logger.debug('connection backlog', {
             port: this.port,
-            length: 0
+            length: 0,
+            grew: false
         });
     }
 };

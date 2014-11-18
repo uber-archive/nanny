@@ -75,7 +75,7 @@ WorkerSupervisor.prototype.do = function (command, arg) {
     // the next state of the worker supervisor, albeit the same state.
     this.state = former[command](arg);
     if (this.state !== former) {
-        this.logger.debug('worker state change', this.inspect());
+        this.logger.info('worker state change', this.inspect());
         this.emit(this.state.name, this);
         this.emit('stateChange', this.state.name, this);
     }
@@ -244,7 +244,7 @@ WorkerSupervisor.prototype.kill = function (signal) {
         // Regardless of the cause for this exception, the worker should be
         // notified that it is down so it can respond.
         if (signal !== 0) {
-            this.logger.error('worker missing when sent signal', {
+            this.logger.warn('worker missing when sent signal', {
                 id: this.id,
                 signal: child.pid
             });
@@ -262,7 +262,7 @@ WorkerSupervisor.prototype.fullStop = function () {
 
 // Internal method, called if a child process emits an error.
 WorkerSupervisor.prototype.handleError = function (error) {
-    this.logger.debug('worker error', {
+    this.logger.error('worker fork error', {
         id: this.id,
         error: error
     });
@@ -272,20 +272,20 @@ WorkerSupervisor.prototype.handleError = function (error) {
 // Internal method, called if a child process emits an exit event.
 WorkerSupervisor.prototype.handleExit = function (code, signal) {
     if (signal) {
-        this.logger.debug('worker exited due to signal', {
+        this.logger.info('worker exited due to signal', {
             id: this.id,
             pid: this.process.pid,
             code: code,
             signal: signal
         });
     } else if (code !== 0) {
-        this.logger.debug('worker exited with error', {
+        this.logger.error('worker exited with error', {
             id: this.id,
             pid: this.process.pid,
             code: code
         });
     } else {
-        this.logger.debug('worker exited gracefully', {
+        this.logger.info('worker exited gracefully', {
             id: this.id,
             pid: this.process.pid,
             code: code
@@ -316,13 +316,12 @@ WorkerSupervisor.prototype.handleMessage = function (message, handle) {
     } else if (message.cmd === 'CLUSTER_PULSE') {
         this.handlePulse(message);
     } else if (message.cmd === 'CLUSTER_RETURN_ERROR') {
-        this.logger.debug('worker server closed before it could receive error', {
+        this.logger.warn('worker server closed before it could receive error', {
             id: this.id,
-            port: this.port,
-            message: message
+            port: this.port
         });
     } else if (message.cmd === 'CLUSTER_NOT_LISTENING') {
-        this.logger.debug('worker server closed before it could receive confirmation that it is listening', {
+        this.logger.warn('worker server closed before it could receive confirmation that it is listening', {
             id: this.id,
             port: this.port
         });
@@ -567,7 +566,7 @@ Running.prototype.scheduleUnhealthyTimeout = function () {
 };
 
 Running.prototype.handleUnhealthyTimeout = function () {
-    this.worker.logger.error('stopping spinning worker', {
+    this.worker.logger.error('worker stopping because of failure to report health', {
         id: this.worker.id,
         pid: this.worker.process.pid
     });
@@ -617,8 +616,9 @@ Stopping.prototype.inspect = function () {
     return {
         id: this.worker.id,
         state: 'stopping',
-        isDebugging: this.isDebugging,
         pid: this.worker.process.pid,
+        isDebugging: this.isDebugging,
+        startedAt: this.startedAt,
         stopRequestedAt: this.stopRequestedAt,
         forceStopAt: this.forceStopAt,
         forcedStop: this.forcedStop,
@@ -689,7 +689,7 @@ Stopping.prototype.debug = function () {
 // running is the target state.
 Stopping.prototype.handleStop = function (why) {
     var stoppedAt = Date.now();
-    this.worker.logger.debug('worker post mortem', {
+    this.worker.logger.info('worker post mortem', {
         id: this.worker.id,
         pid: this.worker.process.pid,
         code: why.code,
@@ -726,7 +726,7 @@ Stopping.prototype.handleForceStopTimeout = function () {
     var worker = this.worker;
     var logger = worker.logger;
     this.forceStopHandle = null;
-    logger.warn('lost patience with stopping worker - forcing shutdown', {
+    logger.error('worker forced to shut down', {
         id: this.worker.id,
         pid: this.worker.process.pid
     });

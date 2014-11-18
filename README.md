@@ -31,117 +31,598 @@ Any attempt to listen for incomming connections with a `net`, `http`, or
 // launcher.js
 var ClusterSupervisor = require("nanny");
 var supervisor = new ClusterSupervisor({
-
-    workerPath: path.join(__dirname, "worker.js"),
-    workerArgv: [],             // Arguments to pass to your worker.
-    workerCount: 8,             // Number of workers to spawn. Default is # cores.
-    logicalIds: [5, 6, 7]       // Give workers an env variable
-                                // "PROCESS_LOGICAL_ID" based on the values in
-                                // the array and the order of the array.
-
-    // Configure the supervisor's behavior:
-
-    pulse: 1000,                // The interval at which workers will attempt
-                                // to submit their memory usage and load statistics.
-    unhealthyTimeout: 10e3,     // The maximum delay in miliseconds after an
-                                // expected heart beat that a worker supervisor
-                                // will tolerate before stopping a stalled
-                                // worker.
-    serverRestartDelay: 1000,   // The period that a load balancer will wait before
-                                // attempting to restart a socket server.
-    workerForceStopDelay: 1000, // The period that a worker supervisor will wait between
-                                // a stop command and when it will
-                                // automatically force stop with a kill signal.
-                                // Set to Infinity to disable.
-    workerRestartDelay: 1000,   // The period that a worker will wait between
-                                // when a worker stops and when it will attempt
-                                // to restart it.
-    respawnWorkerCount: 1,      // When workers exit, retry spawning up to x
-                                // times. -1 for infinite.
-
-    // Override the child process parameters for each worker:
-
-    execPath: '/usr/bin/node',  // An alternate Node.js binary to use to spawn
-                                // worker processes.
-    execArgv: [],               // An alternate set of command line arguments
-                                // for Node.js to spawn the worker process.
-    cwd: '/',                   // The working directory for each worker
-                                // process.
-    encoding: 'utf-8',          // Encoding for standard IO of the worker.
-    silent: false,              // Pipes the worker standard IO into the
-                                // supervisor process instead of inheriting the
-                                // supervisor's own standard IO.
-
-    // Introduce additional cluster supervisor initialization.
-    // `this` is the cluster supervisor.
-    initMaster: function() {
-    },
-
-    // Override the method used to create the worker environment.
-    // `this` is a worker supervisor and `this.id` is its logical id.
-    createEnvironment: function (logicalId) {
-        return {
-            PROCESS_LOGICAL_ID: logicalId
-        };
-    },
-
-    // Override the health check method of the worker supervisor.
-    // If this returns false, the worker process fails and will be stopped.
-    // The health check will occur on the same interval as the worker's health
-    // report (pulse) but may be offset by as much under normal conditions.
-    isHealthy: function (health) {
-        return health.memoryUsage.rss < 700e6;
-    },
-
-    // Override the logger for the cluster. By default, we create a debuglog
-    // named 'nanny' visible with `NODE_DEBUG=nanny`.
-    logger: {
-        debug: console.log.bind(console),
-        warn: console.warn.bind(console),
-        error: console.error.bind(console),
-        info: consolea.info.bind(console)
-    }
-
+    workerPath: path.join(__dirname, "server.js"),
 });
-
+process.title = 'nodejs my-supervisor';
 supervisor.start();
-supervisor.stop();
-supervisor.inspect();
-supervisor.countWorkers();
-supervisor.countRunningWorkers();
-supervisor.countActiveWorkers();
-supervisor.countRunningLoadBalancers();
-supervisor.countActiveLoadBalancers();
-supervsior.forEachWorker(function (workerSupervisor) { });
-supervisor.forEachLoadBalancer(function (loadBalancer) { });
 ```
 
 ```js
-// worker.js
-process.title = 'worker';
+// server.js
+process.title = 'nodejs my-worker';
 // initialize worker stuff here...
 ```
-
-`execPath`, `execArgv`, `encoding`, `cwd`, and `silent` are passed through to
-Node.js's own [child_process][].
-
-[child_process]: http://nodejs.org/api/child_process.html
-
-The cluster supervisor, worker supervisors, and load balancers, are all event emitters.
-
-The worker supervisor emits 'health' events when the child process reports its
-memory usage and load metrics.
 
 
 ## Docs
 
-### `var supervisor = new ClusterSupervisor(/*arguments*/)`
+### `options.workerPath` **required**
 
-```ocaml
-ClusterSupervisor := (spec: SupervisorSpec) => void
+The file system path of the Node.js executable that will run as the worker.
+The worker script should be written in such a way as that it runs regardless of
+whether it is managed by Nanny.
+That is, there is no cluster module that the worker needs to load, nor does it
+need to check whether it is running as a worker or supervisor.
+The supervisor and worker scripts are separate.
+Nanny will run a thunk module that will arrange for a seemingly unmodified
+environment, except that the `net.Server` has been subverted and a periodic
+health monitor ("pulse") has been set up.
+`require.main` will be your worker `module` and `process.argv` will have
+`workerPath` at index 1, just as they would if Node.js ran your worker
+directly.
+
+### `options.workerArgv`
+
+The command line arguments to pass to your worker script, as will appear at
+index 2 and beyond of `process.argv` to your worker.
+
+By default, this is empty.
+
+### `options.workerCount`
+
+The number of workers to maintain.
+Each worker will be assigned its 0-base index for its logical identifier.
+The default worker count is the number of logical CPU's on the host machine
+as reported by `process.cpus().length`.
+
+The worker count is **optional** but cannot be provided if you instead provide
+`logicalIds`.
+
+### `options.logicalIds`
+
+An array of logical identifiers for each worker that the supervisor should
+maintain.
+The default logical identifiers start with 0 and are as many as the host
+machine's CPUs.
+
+The logical identifiers are **optional** but cannot be provided if you instead
+explicate `workerCount`.
+
+Logical identifiers may be numbers or strings.
+
+### `options.logger`
+
+Overrides the default logger object for the cluster.
+Nanny uses the methods `error`, `warn`, `info`, and `debug`, all of which must
+accept the log string and an optional object containing additional contextual
+information.
+The `fatal` method might be used in a future version.
+
+The default logger is provided by the `debuglog` packaged module and all levels
+are visible if you include `nanny` in the ``NODE_DEBUG`` space delimited
+environment variable.
+
+### `options.createEnvironment(logicalId)`
+
+The worker supervisor will call this method once before each time it spawns a
+worker subprocess with the logical identifier of the worker as its first
+argument and with the WorkerSupervisor instance as `this`.
+The environment creator must return an object with the entire map of
+environment variables that the worker will need.
+
+The default environment creator returns an object with a ``PROCESS_LOGICAL_ID``
+set to the worker's logical identifier.
+
+Note that the returned environment is taken to be an **exhaustive**
+environment, meaning that worker processes do not implicitly inherit the
+supervisor process's environment.
+To explicitly forward an environment, extent `process.env`
+
+```js
+var extend = require('xtend');
+new Supervisor({
+    createEnvironment: function (id) {
+        return extend(process.env, {
+            MY_TITLE: 'nodejs my-worker-' + id,
+            MY_WORKER_ID: id
+        });
+    }
+})
 ```
 
-This module abstracts logic for spawning workers via node cluster.
+### `options.pulse`
+
+The interval at which workers will attempt to submit a health report, in
+miliseconds.
+By default, workers will not submit health reports.
+
+At time of writing, the health monitor will keep a process alive unless it
+calls `process.exit` explicitly.
+In a future version, stopping a worker should shut down the health checks so it
+can gracefully exit.
+
+### `options.isHealthy`
+
+When a worker submits a health report, the supervisor calls this method to
+check whether the process is healthy.
+The health report includes *self reported* memory usage and event loop metrics.
+
+- `memoryUsage` as returned by Node.js's [process.memoryUsage][MEM]
+    -   `rss` system memory usage in bytes
+    -   `heapTotal` memory allocated by V8
+    -   `heapUsed` memory in use from slabs alocated by V8
+- `load` the number of miliseconds (in nanosecond resolution) that an enqueued
+  task had to wait before it was executed.
+
+[MEM]: http://nodejs.org/api/process.html#process_process_memoryusage
+
+```ocaml
+Health : {memoryUsage: MemoryUsage, load: Number}
+MemoryUsage: {rss: Number, heapTotal: Number, heapUsed: Number}
+```
+
+This function is called as a method of the corresponding worker supervisor, so
+for example, `this.id` is the corresponding worker logical id.
+
+If `isHealthy` returns a falsy value, the worker will be stopped with the
+intention to restart. The force stop delay, restart delay, and restart count
+options apply in this case.
+
+The default `isHealthy` method returns true regardless of the health report.
+
+Note that this method will never be called, and thus unhealthy workers will not
+be restarted, unless the supervisor is initialized with a `pulse`.
+
+### `options.unhealthyTimeout`
+
+If this option is provided, the supervisor will automatically stop any worker
+that fails to report its health in a timely fashion.
+The unhealthy timeout is the number of miliseconds that the supervisor will
+wait **after** the expected check-in time.
+The force stop delay, restart delay, and restart count options apply in this
+case.
+
+### `options.workerForceStopDelay`
+
+If this option is provided, any worker that is stopped (including stops with
+the intent to restart) will be killed with prejudice if it fails to exit
+gracefully before this timeout in miliseconds.
+
+### `options.workerRestartDelay`
+
+If this option is provided, any worker that attempts to restart will be forced
+to wait this number of miliseconds between stopping and starting.
+
+### `options.respawnWorkerCount`
+
+If this option is provided, any time a worker is stopped with the intention to
+restart (including both manual `restart()` calls and automatic restarts, but
+not including manual `stop()` followed by `start()` calls), the worker will not
+restart if this many restarts have been attempted for this worker, regardless
+of whether the restarts were "successful".
+The supervisor does not distinguish sucessful and failed starts.
+
+### `options.serverRestartDelay`
+
+If this option is provided, the load balancer will wait this number of
+miliseconds between when a supervisor server stops due to an error and when the
+supervisor resumes listening on the corresponding port.
+
+Note that this setting applies to the socket server running in the supervisor
+process for a given port, not to a worker.
+
+### `options`: `execPath`, `execArgv`, `cwd`, `encoding`, `silent`
+
+These options are passed through to Node.js's child process [fork][].
+Particularly, `execArgv` is distinct from `workerArgv`. The `execArgv` are
+options for Node.js and are not visible to the worker.
+These are useful for V8 and Node.js options.
+
+[fork]: http://nodejs.org/api/child_process.html#child_process_child_process_fork_modulepath_args_options
+
+A snapshot of these options are captured on each worker supervisor instance's
+`spec` property and are queried each time the supervisor spawns a new worker,
+so it is possible to manipulate these values, per worker, before each restart.
+
+### `supervisor.start()`
+
+Sets the target state of each worker to "running" and initiates the sequence of
+operations necessary to get to that state from each worker's current state.
+
+:warning: At time of writing, this method should only be called once.
+In the future it should be possible to restart a supervisor, and the start
+method should be idempotent.
+
+### `supervisor.stop()`
+
+Sets the target state of each worker to "standby" and initiates the sequence of
+operations necessary to get to that state form each worker's current state.
+
+### `supervisor.inspect()`
+
+Returns an object representing a snapshot of the system state of the entire
+supervisor.
+
+The root object contains properties `workers` and `loadBalancers`, which are
+each arrays of the respective state of each worker and load balancer.
+Workers correspond to worker supervisors.
+Load balancers correspond to ports managed by the cluster supervisor.
+
+Workers in the standby state have been stopped or not started.
+If they were stopped with the intent to restart, the `startingAt` indicates the
+intended time to start, or may be null.
+
+Workers in the running state have been started and the subprocess may still be
+coming up.
+
+Workers in the stopping state include worker lifetime statistics, `startedAt`,
+`stopRequestedAt`, and `forceStopAt`.
+The force stop time may have passed, in which case `forcedStop` will be true.
+A worker that has been put in debug mode with the `debug()` method will be
+dropped to a debug console and placed in the "stopping" state without the
+intent to force stop.
+It is the responsibility of the debugging user to manually stop the process, at
+which time the supervisor will return to the standby state and resume
+operations.
+
+The worker state will include a health report snapshot if one has been
+received in either running or stopping states.
+
+The load balancers can be in "standby", "starting", "running", and "stopped"
+states surrounding the Node.js socket server state machine.
+The load balancer will try to remaining "running" once it has been created,
+until it is expressly stopped.
+
+- Standby means that the load balancer does not have a socket server.
+- Starting means that a server has been created and is waiting for confirmation
+  that it is listening on the request port.
+- Running means the load balancer has a server that is listening on the
+  requested port.
+  Only in this state will the cluster supervisor send connections to workers.
+  Otherwise, connections will be queued.
+- Stopping means the load balancer has closed its server and is waiting for
+  confirmation of close.
+
+```ocaml
+ClusterState : {workers: Array<WorkerState>, loadBalancers: Array<LoadBalancerState>}
+
+WorkerState : WorkerStandbyState | WorkerRunningState | WorkerStoppingState
+
+WorkerStandbyState : {
+    id,
+    state: "standby",
+    startingAt: Number
+}
+
+WorkerRunningState : {
+    id,
+    state: "running",
+    pid: Number,
+    startedAt: Number,
+    health?: Health
+}
+
+WorkerStoppingState : {
+    id,
+    state: "stopping",
+    pid: Number,
+    isDebugging: Boolean,
+    startedAt: Number,
+    stopRequestedAt: Number,
+    forceStopAt: Number,
+    forcedStop: Boolean,
+    health?: Health
+}
+
+LoadBalancerState : {
+    state: "standby" | "starting" | "running" | "stopped",
+    port: Number,
+    address: Address,
+    backlog: Number
+}
+```
+
+### `supervisor.countWorkers()`
+
+Returns the number of allocated workers.
+
+### `supervisor.countRunningWorkers()`
+
+Returns the number of workers that are currently running.
+
+### `supervisor.countActiveWorkers()`
+
+Returns the number of workers that are not on standby, running or on their way
+to or from running.
+
+### `supervisor.countRunningLoadBalancers()`
+
+Returns the number of load balancers that are listening on a port and accepting
+connections.
+
+### `supervisor.countActiveLoadBalancers()`
+
+Returns the number of load balancers that are not on standby: running or on
+their way to or from running.
+
+
+## Cluster Supervisor Logs
+
+All cluster supervisor logs include the process title as reflected by
+`process.title`.
+
+### INFO `initing master`
+
+- title
+- logicalIds: an array of the logical identifiers of all worker supervisors.
+
+Reports that the cluster supervisor has been constructed and will be
+initialized.
+If you see more than one of these messages, the process is constructing too
+many cluster supervisors.
+
+### INFO `cluster now active`
+
+- title
+
+Indicates that all workers have been started.
+
+### INFO `cluster now standing by`
+
+- title
+
+Indicates that all workers and load balancers have stopped.
+This should only occur in response to a stop signal or a manual `stop()` call.
+
+### INFO `cluster master received signal...killing workers`
+
+- title
+- signal: the signal that the supervisor received
+
+### DEBUG `cluster checking for full stop`
+
+- title
+- activeWorkerCount
+- activeLoadBalancerCount
+
+When a load balancer or worker supervisor changes its state, the cluster
+supervisor checks whether all of these have returned to standby, in which case
+goes to standby itself.
+This debug message shows the number of active workers and load balancers and
+the supervisor should go to standby if these are both zero.
+
+
+## Worker Supervisor Logs
+
+### INFO `worker state change`
+
+This message indicates that the worker has transitioned to a new state, one of
+"standby", "running", or "stopping".
+Regardless, the logger payload is the result of `workerSupervisor.inspect()`.
+
+### ERROR `worker fork error`
+
+- id
+- error
+
+This message indicates that the supervisor was unable to create a child process
+for the worker with the given logical identifier.
+
+### INFO `worker exited gracefully`
+
+- id
+- pid
+- code, necessarily zero
+
+### INFO `worker exited due to signal`
+
+- id
+- pid
+- code
+- signal
+
+### ERROR `worker exited with error`
+
+- id
+- pid
+- code
+
+### INFO `worker post mortem`
+
+Indicates that a worker has stopped and reports various lifecycle metrics.
+
+- id
+- pid
+- code: exit status code
+- signal?: signal name that caused exit if present
+- error?: error if the worker could not be forked
+- startedAt: date of start
+- stopRequestedAt: date when the process was asked to stop
+- stoppedAt: date when the process actually stopped
+- forcedStop: whether it was necessary to send a kill signal to stop
+- upTime: duration from startedAt to stoppedAt
+- teardownTime: duration from stopRequestedAt to stoppedAt
+- lastKnownHealth?: last health if ever reported
+
+### WARN `worker supervisor received non-object message`
+
+This indicates that the supervisor received a message from the worker processes
+over the Node.js IPC channel, but that message was not a regular object.
+The cluster supervisor has no code that would cause this, but it is possible
+for specialized supervisors to piggy-back on the IPC channel, and it is
+possible that certain race conditions particularly around exiting a process or
+closing the channel might produce a corrupt message.
+
+It might be useful to review IPC interactions if this warning becomes frequent.
+
+### WARN `worker missing when sent signal`
+
+- id
+- signal
+
+It is possible that a signal might be sent to a process after it exits.
+The cluster supervisor detects this case and compensates depending on whether
+the child process is supposed to be running.
+This should be unusual.
+A high occurrence of this warning could be an indication of thrashing or a bug.
+
+### WARN `worker server closed before it could receive error`
+
+- id
+- port
+
+It is possible for a worker to quickly start listening and stop listening
+before it receives an address or any connections from the supervisor.
+
+```js
+// server.js
+server.listen(0);
+server.close();
+```
+
+This should be unusual since workers tyically stay alive long enough to full
+start, and if it does occur, should be due to user intervention.
+
+### WARN `worker server closed before it could accept a connection - redistributing`
+
+- id
+- port
+
+This message indicates that the following sequence of events occurred:
+
+- supervisor receives incomming connection and sends it to the worker
+- worker closes server
+- worker receives connection from the supervisor
+- worker returns the connection to the supervisor so it can be sent to an
+  active worker, when an active worker becomes available
+
+This should be rare, but can occur during normal operation.
+Unless these are frequent, no action should be necessary.
+
+### ERROR `worker forced to shut down`
+
+- id
+- pid
+
+Indicates that the worker did not shut down gracefully before the force stop
+delay passed and that the supervisor sent the kill signal.
+
+There may be a defect in the worker that prevents it from shutting down in a
+timely fashion, including possibly a signal handler that never follows up with
+a graceful process exit.
+If the process needs more time to shut down gracefully, the
+`workerForceStopDelay` option should be extended.
+
+### ERROR `worker stopping because of failure to report health`
+
+- id
+- pid
+
+Indicates that the process failed to report its health after it was due, plus
+the margin `unhealthyTimeout`.
+
+This may be a symptom of being too busy, in which case the `unhealthyTimeout`
+should be extended or load should be distributed elsewhere.
+It may also be an indication of an infinite loop, either in JavaScript or
+libuv.
+
+### ERROR `worker unexpectedly stopped in standby state`
+
+- id
+
+Indicates that a child process has reported that it stopped more than once.
+This is potentially dangerous if the worker restarts immediately, since the
+second signal interferes with the new worker process.
+If this occurs, please review the logs to ascertain what caused the first and
+second `handleStop` state transition and file an issue.
+
+### DEBUG `sending worker's server its listening address`
+
+- port
+- address {port, address}
+
+Indicates that the supervisor now has an open server for the requested port and
+sends the actual address to the worker so that it can emit the listen event and
+store the actual address.
+
+### DEBUG `sending connection to worker`
+
+- id
+- port
+
+Indicates that the supervisor has sent a connection to a server in the worker.
+
+### DEBUG `spawned worker got message`
+
+- id
+- message
+
+Indicates that the cluster supervisor received a message that is not in its
+command vocabulary.
+This can occur normally if a specialized worker and supervisor piggy-back on
+the Node.js IPC channel.
+
+
+## Load Balancer Logs
+
+### INFO `connection backlog`
+
+Indicates the number of connections waiting to be distributed to workers.
+The `length` will be 0 and `grew` false whenever the supervisor flushes
+incoming connections to available workers.
+This message will be logged each time a connection gets enqueued.
+
+- port
+- length: the number of queued connections
+- grew?
+
+### INFO `supervisor stopped listening on port`
+
+- port
+
+Indicates that the supervisor has stopped listening for requests to the given
+port.
+
+### ERROR `supervisor failed to listen`
+
+- port
+- error
+
+Indicates that the load balancer was unable to listen on the requested port
+with the given error.
+This error gets distributed to all workers that attempt to listen on this port
+hereafter and the supervisor will need to be restarted.
+
+### WARN `supervisor shutting down server before confirmed to be listening`
+
+- port
+
+This will occur if the load balancer is stopped before it has finished starting.
+This should be rare in normal operation, and should only occur in response to
+manual shutdown.
+
+### DEBUG `worker subscribed to connections`
+
+- id
+- port
+- count: the new number of worker supervisors in the ring
+
+Indicates that a worker has subscribed to incoming connections on this port.
+
+### DEBUG `supervisor requesting to listen on port`
+
+- port
+
+Indicates that the load balancer has requested a server on this port.
+
+### DEBUG `supervisor received address to listen on port`
+
+- port
+- address
+
+Indicates that the load balancer has a server that is now listening on the
+given actual address.
+
 
 ## Installation
 
