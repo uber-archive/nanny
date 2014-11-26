@@ -1,0 +1,79 @@
+
+type FilePath : String
+type LogicalId : String | Number
+type Milliseconds : Number
+type MillisecondsSinceEpoch : Number
+type Bytes : Number
+
+type HealthReport : {
+    memoryUsage: {
+        rss: Bytes,
+        heapTotal: Bytes,
+        heapUsed: Bytes
+    },
+    load: Milliseconds
+}
+
+type WorkerSupervisor : {
+
+}
+
+type WorkerStandby : {
+    id: LogicalId,
+    state: "standby",
+    startingAt: MillisecondsSinceEpoch | null
+}
+type WorkerRunning : {
+    state: "running",
+    health?: HealthReport
+}
+type WorkerStopping : {
+    state: "stopping",
+    startedAt: MillisecondsSinceEpoch
+    stopRequestedAt: MillisecondsSinceEpoch
+    forceStopAt: MillisecondsSinceEpoch,
+    forcedStop: Boolean,
+    health?: HealthReport
+}
+type ClusterSupervisorState : {
+    workers: Array<WorkerStandby | WorkerRunning | WorkerStopping>,
+    loadBalancers: Array<{
+        state: "standby" | "starting" | "running" | "stopped"
+    }>
+}
+
+type ClusterSupervisor : {
+    start: () => void,
+    stop: () => void,
+    inspect: () => ClusterSupervisorState,
+
+    countWorkers: () => Number,
+    countRunningWorkers: () => Number,
+    countActiveWorkers: () => Number,
+    countRunningLoadBalancers: () => Number,
+    countActiveLoadBalancers: () => Number
+}
+
+nanny : (options: {
+    workerPath: FilePath,
+    workerArgv?: Array<String>,
+    workerCount?: Number,
+    logicalIds?: Array<LogicalId>,
+    logger?: {
+        debug: (String, Object) => void
+        info: (String, Object) => void
+        warn: (String, Object) => void
+        error: (String, Object) => void
+    },
+
+    createEnvironment?: (
+        this: WorkerSupervisor, id: LogicalId
+    ) => env: Object,
+
+    pulse?: Milliseconds,
+
+    isHealthy?: (
+        this: WorkerSupervisor, healthReport: HealthReport
+    ) => Boolean
+}) => ClusterSupervisor
+
