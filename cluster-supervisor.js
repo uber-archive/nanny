@@ -137,8 +137,8 @@ ClusterSupervisor.prototype.countRunningLoadBalancers = function () {
 };
 
 ClusterSupervisor.prototype.forEachWorker = function (callback, thisp) {
-    this.workers.forEach(function (worker, index) {
-        callback.call(thisp, worker, index, this);
+    this.workers.forEach(function (worker) {
+        callback.call(thisp, worker, worker.id, this);
     }, this);
 };
 

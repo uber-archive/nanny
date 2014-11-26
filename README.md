@@ -46,11 +46,21 @@ process.title = 'nodejs my-worker';
 
 ## Docs
 
-### `options.workerPath` **required**
+Nanny exports a `ClusterSupervisor` function that accepts a spec object and
+returns an instance.
+The cluster supervisor constructor may be called with or without `new`.
+The `workerPath` is the only required property of the spec.
+All other properties are options.
+
+Cluster supervisors implement Node.js's `EventEmitter`.
+
+The `ClusterSupervisor.prototype` also has `LoadBalancer` and
+`WorkerSupervisor` constructors that can be overloaded by heirs.
+
+### `clusterSpec.workerPath` **required**
 
 The file system path of the Node.js executable that will run as the worker.
-The worker script should be written in such a way as that it runs regardless of
-whether it is managed by Nanny.
+The worker script should be written as a normal Node.js program.
 That is, there is no cluster module that the worker needs to load, nor does it
 need to check whether it is running as a worker or supervisor.
 The supervisor and worker scripts are separate.
@@ -61,14 +71,14 @@ health monitor ("pulse") has been set up.
 `workerPath` at index 1, just as they would if Node.js ran your worker
 directly.
 
-### `options.workerArgv`
+### `clusterSpec.workerArgv`
 
 The command line arguments to pass to your worker script, as will appear at
 index 2 and beyond of `process.argv` to your worker.
 
 By default, this is empty.
 
-### `options.workerCount`
+### `clusterSpec.workerCount`
 
 The number of workers to maintain.
 Each worker will be assigned its 0-base index for its logical identifier.
@@ -78,7 +88,7 @@ as reported by `process.cpus().length`.
 The worker count is **optional** but cannot be provided if you instead provide
 `logicalIds`.
 
-### `options.logicalIds`
+### `clusterSpec.logicalIds`
 
 An array of logical identifiers for each worker that the supervisor should
 maintain.
@@ -90,7 +100,7 @@ explicate `workerCount`.
 
 Logical identifiers may be numbers or strings.
 
-### `options.logger`
+### `clusterSpec.logger`
 
 Overrides the default logger object for the cluster.
 Nanny uses the methods `error`, `warn`, `info`, and `debug`, all of which must
@@ -98,11 +108,17 @@ accept the log string and an optional object containing additional contextual
 information.
 The `fatal` method might be used in a future version.
 
-The default logger is provided by the `debuglog` packaged module and all levels
+The default logger is provided by the [debuglog][] packaged module and all levels
 are visible if you include `nanny` in the ``NODE_DEBUG`` space delimited
 environment variable.
 
-### `options.createEnvironment(logicalId)`
+[debuglog]: https://www.npmjs.org/package/debuglog
+
+```
+NODE_DEBUG=nanny node supervisor.js
+```
+
+### `clusterSpec.createEnvironment(logicalId)`
 
 The worker supervisor will call this method once before each time it spawns a
 worker subprocess with the logical identifier of the worker as its first
@@ -130,7 +146,7 @@ new Supervisor({
 })
 ```
 
-### `options.pulse`
+### `clusterSpec.pulse`
 
 The interval at which workers will attempt to submit a health report, in
 miliseconds.
@@ -141,11 +157,26 @@ calls `process.exit` explicitly.
 In a future version, stopping a worker should shut down the health checks so it
 can gracefully exit.
 
-### `options.isHealthy`
+### `clusterSpec.isHealthy`
 
 When a worker submits a health report, the supervisor calls this method to
-check whether the process is healthy.
+check whether the process is healthy with that report.
 The health report includes *self reported* memory usage and event loop metrics.
+
+The following is a partial supervisor that will kill a worker if it reports
+that it has allocated more than 100MB of memory, will check health every
+second, will stop a worker if it fails to check in within 6 seconds (1 for
+pulse, 5 for timeout).
+
+```js
+new Supervisor({
+    isHealthy: function (report) {
+        return report.memoryUsage.rss < 100e6
+    },
+    pulse: 1e3,
+    unhealthyTimeout: 5e3
+});
+```
 
 - `memoryUsage` as returned by Node.js's [process.memoryUsage][MEM]
     -   `rss` system memory usage in bytes
@@ -173,7 +204,7 @@ The default `isHealthy` method returns true regardless of the health report.
 Note that this method will never be called, and thus unhealthy workers will not
 be restarted, unless the supervisor is initialized with a `pulse`.
 
-### `options.unhealthyTimeout`
+### `clusterSpec.unhealthyTimeout`
 
 If this option is provided, the supervisor will automatically stop any worker
 that fails to report its health in a timely fashion.
@@ -182,18 +213,21 @@ wait **after** the expected check-in time.
 The force stop delay, restart delay, and restart count options apply in this
 case.
 
-### `options.workerForceStopDelay`
+### `clusterSpec.workerForceStopDelay`
 
-If this option is provided, any worker that is stopped (including stops with
-the intent to restart) will be killed with prejudice if it fails to exit
-gracefully before this timeout in miliseconds.
+Any worker that is stopped (including stops with the intent to restart) will be
+killed with prejudice if it fails to exit gracefully before this timeout in
+miliseconds.
 
-### `options.workerRestartDelay`
+The default delay is 5 seconds and can be overridden on heirs over
+`ClusterSupervisor.prototype.defaultWorkerForceStopDelay`.
+
+### `clusterSpec.workerRestartDelay`
 
 If this option is provided, any worker that attempts to restart will be forced
 to wait this number of miliseconds between stopping and starting.
 
-### `options.respawnWorkerCount`
+### `clusterSpec.respawnWorkerCount`
 
 If this option is provided, any time a worker is stopped with the intention to
 restart (including both manual `restart()` calls and automatic restarts, but
@@ -202,7 +236,7 @@ restart if this many restarts have been attempted for this worker, regardless
 of whether the restarts were "successful".
 The supervisor does not distinguish sucessful and failed starts.
 
-### `options.serverRestartDelay`
+### `clusterSpec.serverRestartDelay`
 
 If this option is provided, the load balancer will wait this number of
 miliseconds between when a supervisor server stops due to an error and when the
@@ -211,7 +245,11 @@ supervisor resumes listening on the corresponding port.
 Note that this setting applies to the socket server running in the supervisor
 process for a given port, not to a worker.
 
-### `options`: `execPath`, `execArgv`, `cwd`, `encoding`, `silent`
+### `clusterSpec.execPath`
+### `clusterSpec.execArgv`
+### `clusterSpec.cwd`
+### `clusterSpec.encoding`
+### `clusterSpec.silent`
 
 These options are passed through to Node.js's child process [fork][].
 Particularly, `execArgv` is distinct from `workerArgv`. The `execArgv` are
@@ -224,7 +262,12 @@ A snapshot of these options are captured on each worker supervisor instance's
 `spec` property and are queried each time the supervisor spawns a new worker,
 so it is possible to manipulate these values, per worker, before each restart.
 
-### `supervisor.start()`
+### Cluster supervisor methods
+
+The following documentation pertains to the methods of a cluster supervisor, as
+returned by the `ClusterSupervisor(clusterSpec)` function.
+
+### `clusterSupervisor.start()`
 
 Sets the target state of each worker to "running" and initiates the sequence of
 operations necessary to get to that state from each worker's current state.
@@ -233,12 +276,16 @@ operations necessary to get to that state from each worker's current state.
 In the future it should be possible to restart a supervisor, and the start
 method should be idempotent.
 
-### `supervisor.stop()`
+### `clusterSupervisor.stop()`
 
 Sets the target state of each worker to "standby" and initiates the sequence of
 operations necessary to get to that state form each worker's current state.
 
-### `supervisor.inspect()`
+:warning: At time of writing, a stopped cluster cannot be restarted.
+Individual workers can be restarted many times within the lifespan of the
+cluster supervisor.
+
+### `clusterSupervisor.inspect()`
 
 Returns an object representing a snapshot of the system state of the entire
 supervisor.
@@ -248,44 +295,102 @@ each arrays of the respective state of each worker and load balancer.
 Workers correspond to worker supervisors.
 Load balancers correspond to ports managed by the cluster supervisor.
 
+```ocaml
+ClusterState : {workers: Array<WorkerState>, loadBalancers: Array<LoadBalancerState>}
+```
+
+See the documentation for worker supervisors and load balancers for their
+respective state representations as returned by their own `inspect()` methods.
+
+### `clusterSupervisor.countWorkers()`
+
+Returns the number of allocated workers.
+
+### `clusterSupervisor.countRunningWorkers()`
+
+Returns the number of workers that are currently running.
+
+### `clusterSupervisor.countActiveWorkers()`
+
+Returns the number of workers that are not on standby, running or on their way
+to or from running.
+
+### `clusterSupervisor.countRunningLoadBalancers()`
+
+Returns the number of load balancers that are listening on a port and accepting
+connections.
+
+### `clusterSupervisor.countActiveLoadBalancers()`
+
+Returns the number of load balancers that are not on standby: running or on
+their way to or from running.
+
+### `clusterSupervisor.forEachWorker(callback, thisp)`
+
+Calls the callback once for every worker supervisor before returning.
+The callback receives the worker supervisor, the logical identfier for that
+supervisor, and the supervisor itself.
+
+### `clusterSupervisor.forEachLoadBalancer(callback, thisp)`
+
+Calls the callback once for every load balancer before returning.
+The callback receives the load balancer, the port number, and the supervisor
+itself.
+
+### `WorkerSupervisor(workerSupervisorSpec)`
+
+The cluster supervisor constructs and exposes worker supervisor instances.
+Each of these supervisors has a state machine with "standby", "running", and
+"stopping" states.
+The supervisor reacts to events and commands based on its current state.
+For example, the `start()` command on a running worker will do nothing,
+but the `start()` command on a stopping worker will cause the worker to restart
+immediately after it transitions to standby.
+
+### `workerSupervisor.id`
+
+The logical identifier assigned to this worker supervisor, one of the logical
+identifiers constructed or provided to the cluster supervisor as `logicalIds`
+or inferred from the number of processors.
+
+### `workerSupervisor.inspect()`
+
+Returns a JSON serializable representation of the worker's state.
+
 Workers in the standby state have been stopped or not started.
-If they were stopped with the intent to restart, the `startingAt` indicates the
-intended time to start, or may be null.
+
+- If they were stopped with the intent to restart, the `startingAt` indicates
+  the intended time to start, or may be null.
 
 Workers in the running state have been started and the subprocess may still be
 coming up.
 
+- The `pid` is the operating system's process identifier for the forked
+  worker.
+- The `startedAt` is the number representing when the child process was
+  originally forked.
+
 Workers in the stopping state include worker lifetime statistics, `startedAt`,
 `stopRequestedAt`, and `forceStopAt`.
-The force stop time may have passed, in which case `forcedStop` will be true.
-A worker that has been put in debug mode with the `debug()` method will be
-dropped to a debug console and placed in the "stopping" state without the
-intent to force stop.
-It is the responsibility of the debugging user to manually stop the process, at
-which time the supervisor will return to the standby state and resume
-operations.
 
-The worker state will include a health report snapshot if one has been
-received in either running or stopping states.
+- The `stopRequestedAt` is the number representing when the child process was
+  requested to stop or restart.
+- The `forceStopedAt` is the number representing when the child process either
+  should be or was force stopped.
+- The `isDebugging` flag indicates that the process was not actually stopped,
+  but that its [debugger][] was activated.
+  It is the responsibility of the debugging user to manually stop the process.
+  When a process is in the debug state, you can, for example, connect to the
+  process with `node debug -p <pid>` for a debug console.
+- The force stop time may have passed, in which case `forcedStop` will be true.
+  A worker that has been given the `debug()` command will activate the V8
+  [debugger][] and enter the "stopping" state without the intent to force stop.
+- The worker state will include a health report snapshot if one has been
+  received in either running or stopping states.
 
-The load balancers can be in "standby", "starting", "running", and "stopped"
-states surrounding the Node.js socket server state machine.
-The load balancer will try to remaining "running" once it has been created,
-until it is expressly stopped.
-
-- Standby means that the load balancer does not have a socket server.
-- Starting means that a server has been created and is waiting for confirmation
-  that it is listening on the request port.
-- Running means the load balancer has a server that is listening on the
-  requested port.
-  Only in this state will the cluster supervisor send connections to workers.
-  Otherwise, connections will be queued.
-- Stopping means the load balancer has closed its server and is waiting for
-  confirmation of close.
+[debugger]: http://nodejs.org/api/debugger.html
 
 ```ocaml
-ClusterState : {workers: Array<WorkerState>, loadBalancers: Array<LoadBalancerState>}
-
 WorkerState : WorkerStandbyState | WorkerRunningState | WorkerStoppingState
 
 WorkerStandbyState : {
@@ -313,7 +418,141 @@ WorkerStoppingState : {
     forcedStop: Boolean,
     health?: Health
 }
+```
 
+### `workerSupervisor.isHealthy(report)`
+
+Returns whether the process is healthy (should not be stopped) based on its
+self reported memory usage and load metrics.
+
+By default this returns true, but can be overridden on the cluster supervisor
+spec.
+
+### Worker state machine commands
+
+The following are commands that set the intended stable state of the worker and
+initiate the operations necessary to get to that state.
+
+### `workerSupervisor.start()`
+
+- standby: Forks a worker process.
+- running: Does nothing.
+- stopping: Nodes an intent to start when the worker process stops.
+
+### `workerSupervisor.stop()`
+
+- standby: If there is a scheduled restart, cancels that timer.
+- running: Send a SIGINT to the worker process and move to the stopping state.
+- stopping: Do nothing.
+
+### `workerSupervisor.restart()`
+
+- standby: If the worker has not restarted more times than the configured
+  maximum, schedules a a restart after the configured restart delay.
+- running: Issues the stop and restart commands.
+- stopping: Notes an intent to restart when the worker process stops.
+
+### `workerSupervisor.reload()`
+
+- standby: Does nothing.
+- running: sends the SIGHUP signal to the worker process.
+  This will either cause the process to stop voluntarily or reload its
+  configuration.
+- stopping: Notes an intent to restart when the worker process stops.
+
+### `workerSupervisor.forceStop()`
+
+- standby: If there is a scheduled restart, cancels that timer.
+- running: Sends a SIGKILL signal to the worker process and goes to the
+  stopping state.
+- stopping: Sends a SIGKILL signal to the worker process.
+
+### `workerSupervisor.debug()`
+
+- standby: Does nothing.
+- running: Enters the stopping state without intent to restart and reissues the
+  debug command.
+- stopping: Sends the worker process a SIGUSR1 signal (which turns on the V8
+  [debugger][]), cancels the force stop timer, and waits.
+
+### `workerSupervisor.dump()`
+
+- standby: Does nothing.
+- running: Sends the SIGABRT signal to the worker process and enters the
+  stopping state.
+- stopping: Sends the SIGABRT signal to the worker process.
+
+### `LoadBalancer(loadBalancerSpec)`
+
+The load balancer constructor accepts a spec with the following properties.
+
+- `logger`
+- `port`
+- `address`
+- `backlog`
+- `restartDelay`
+
+The load balancer is an event emitter. The cluster supervisor depends on the
+following event.
+
+- `standby` when it has stopped.
+
+The load balancer implements the following methods.
+
+- `inspect` which captures a snapshot of the load balancer state.
+- `addWorkerSupervisor(worker)` which adds a worker supervisor to the queue of
+  available workers accepting connections.
+- `removeWorkerSupervisor(worker)` which removes a worker from the rotation of
+  accepting workers.
+- `handleConnection(connection)` which sends a connection to one of the
+  workers, or buffers the connection until a worker becomes available.
+- `stop()` which requests that the load balancer tear down its server.
+  Load balancers are not restartable at time of writing, but can gracefully
+  handle all workers coming and going ad nauseam.
+  This method is only used for intentional teardown of the cluster for graceful
+  process exit.
+
+The cluster supervisor depends on the following properties of a load balancer.
+
+- `requestedAddress`, from the speced address
+- `requestedBacklog`, from the speced backlog
+
+The following properties are for the load balancer implementation and your
+information.
+
+- `port`, the requested port.
+- `address`, the *actual* address received from the operating system.
+- `server`, the Node.js server listening on the supervisor.
+
+### `loadBalancer.inspect()`
+
+The load balancers can be in "standby", "starting", "running", and "stopped"
+states surrounding the Node.js socket server state machine.
+The load balancer will try to remaining "running" once it has been created,
+until it is expressly stopped.
+
+- Standby means that the load balancer does not have a socket server.
+- Starting means that a server has been created and is waiting for confirmation
+  that it is listening on the request port.
+- Running means the load balancer has a server that is listening on the
+  requested port.
+  Only in this state will the cluster supervisor send connections to workers.
+  Otherwise, connections will be queued.
+- Stopping means the load balancer has closed its server and is waiting for
+  confirmation of close.
+- The `port` is the port that the load balancer was requested for.
+  This port might be 0, in which case the corresponding actual port will
+  differ.
+- The `address` is the actual address granted by the operating system to the
+  cluster supervisor process.
+- The `backlog` is the requested number of connections to buffer by the first
+  worker to request this port.
+  This is often undefined.
+  The [backlog][] is an infrequently recognized option of Node.js servers.
+
+[backlog]: http://nodejs.org/api/net.html#net_server_listen_port_host_backlog_callback
+
+```ocaml
 LoadBalancerState : {
     state: "standby" | "starting" | "running" | "stopped",
     port: Number,
@@ -321,30 +560,6 @@ LoadBalancerState : {
     backlog: Number
 }
 ```
-
-### `supervisor.countWorkers()`
-
-Returns the number of allocated workers.
-
-### `supervisor.countRunningWorkers()`
-
-Returns the number of workers that are currently running.
-
-### `supervisor.countActiveWorkers()`
-
-Returns the number of workers that are not on standby, running or on their way
-to or from running.
-
-### `supervisor.countRunningLoadBalancers()`
-
-Returns the number of load balancers that are listening on a port and accepting
-connections.
-
-### `supervisor.countActiveLoadBalancers()`
-
-Returns the number of load balancers that are not on standby: running or on
-their way to or from running.
-
 
 ## Cluster Supervisor Logs
 
