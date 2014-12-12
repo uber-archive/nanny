@@ -67,8 +67,12 @@ ClusterSupervisor.prototype.WorkerSupervisor = WorkerSupervisor;
 
 // The start command spins up all the workers and the workers in turn spin up
 // any needed load balancers.
+// TODO make the start method idempotent and restartable.
 ClusterSupervisor.prototype.start = function start () {
     this._initMaster();
+    this.logger.info('cluster now active', {
+        title: process.title
+    });
 };
 
 // The stop command shuts down all workers and load balancers.
@@ -133,8 +137,8 @@ ClusterSupervisor.prototype.countRunningLoadBalancers = function () {
 };
 
 ClusterSupervisor.prototype.forEachWorker = function (callback, thisp) {
-    this.workers.forEach(function (worker, index) {
-        callback.call(thisp, worker, index, this);
+    this.workers.forEach(function (worker) {
+        callback.call(thisp, worker, worker.id, this);
     }, this);
 };
 
@@ -290,13 +294,13 @@ ClusterSupervisor.prototype.handleLoadBalancerStandby = function (loadBalancer) 
 ClusterSupervisor.prototype.checkForFullStop = function () {
     var activeWorkerCount = this.countActiveWorkers();
     var activeLoadBalancerCount = this.countActiveLoadBalancers();
-    this.logger.debug('cluster status', {
+    this.logger.debug('cluster checking for full stop', {
         title: process.title,
         activeWorkerCount: activeWorkerCount,
         activeLoadBalancerCount: activeLoadBalancerCount
     });
     if (activeWorkerCount === 0 && activeLoadBalancerCount === 0) {
-        this.logger.debug('cluster now standing by', {title: process.title});
+        this.logger.info('cluster now standing by', {title: process.title});
         this.emit('standby');
     }
 };
