@@ -84,7 +84,7 @@ By default, this is empty.
 The number of workers to maintain.
 Each worker will be assigned its 0-base index for its logical identifier.
 The default worker count is the number of logical CPU's on the host machine
-as reported by `process.cpus().length`.
+as reported by `os.cpus().length`.
 
 The worker count is **optional** but cannot be provided if you instead provide
 `logicalIds`.
