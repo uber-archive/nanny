@@ -29,6 +29,7 @@ Any attempt to listen for incomming connections with a `net`, `http`, or
 
 ```js
 // launcher.js
+var path = require('path');
 var ClusterSupervisor = require("nanny");
 var supervisor = new ClusterSupervisor({
     workerPath: path.join(__dirname, "server.js"),
