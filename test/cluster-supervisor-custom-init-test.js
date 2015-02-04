@@ -11,7 +11,7 @@ test('extended init ClusterSupervisor', function (assert) {
         },
         exec: path.join(__dirname, 'mock-server.js'),
         respawnWorkerCount: 0,
-        numCPUs: 8
+        workerCount: 8
     });
 
     supervisor.start();
