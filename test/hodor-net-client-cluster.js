@@ -7,7 +7,7 @@ var path = require('path');
 var supervisor = new ClusterSupervisor({
     respawnWorkerCount: 0,
     exec: path.join(__dirname, 'hodor-net-client.js'),
-    numCPUs: 4,
+    workerCount: 4,
     pulse: 100,
     unhealthyTimeout: 5e3,
     createEnvironment: function (name) {

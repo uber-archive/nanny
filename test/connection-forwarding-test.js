@@ -11,7 +11,7 @@ test('connection forwarding', function (assert) {
     var supervisor = new ClusterSupervisor({
         respawnWorkerCount: 0,
         exec: path.join(__dirname, 'connection-forwarding-server.js'),
-        numCPUs: 4
+        workerCount: 4
     });
 
     supervisor.start();
