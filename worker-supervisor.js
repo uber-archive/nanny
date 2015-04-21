@@ -433,7 +433,10 @@ Standby.prototype.restart = function () {
         this.startDelayHandle = setTimeout(function () {
             worker.start();
         }, restartDelay);
+    } else {
+        worker.start();
     }
+
     return this;
 };
 
