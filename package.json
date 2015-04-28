@@ -1,6 +1,6 @@
 {
   "name": "nanny",
-  "version": "1.0.1",
+  "version": "1.0.1-me.fixes",
   "description": "Scaffolding for node cluster",
   "keywords": [],
   "author": "tom <tom@uber.com>",
