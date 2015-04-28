@@ -16,7 +16,7 @@ tape('worker should receive same process.argv as non-worker', function (assert) 
     });
 
     supervisor.start();
-    supervisor.workers[0].process.on('message', function (message) {
+    supervisor.workers[0].on('message', function (message) {
         if (message.cmd === 'TEST_RESULT') {
             assert.strictEqual(message.result.length, 3);
             assert.strictEqual(message.result[1], workerPath);

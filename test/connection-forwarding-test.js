@@ -25,7 +25,7 @@ test('connection forwarding', function (assert) {
                 onlistening(port);
             }
         }
-        worker.process.on('message', onmessage);
+        worker.on('message', onmessage);
     });
 
 

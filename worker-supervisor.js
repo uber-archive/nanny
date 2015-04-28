@@ -339,6 +339,8 @@ WorkerSupervisor.prototype.handleMessage = function (message, handle) {
             message: message
         });
     }
+
+    this.emit('message', message, handle);
 };
 
 WorkerSupervisor.prototype.handleConnection = function (port, connection) {
