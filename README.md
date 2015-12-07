@@ -1,3 +1,5 @@
+# NOTICE
+This project has been retired. It is no longer actively developed or maintained. It has been transferred to Uber's [uber-archive](https://github.com/uber-archive) organization and kept here for posterity.
 
 # Nanny
 
