@@ -339,6 +339,8 @@ WorkerSupervisor.prototype.handleMessage = function (message, handle) {
             message: message
         });
     }
+
+    this.emit('message', message, handle);
 };
 
 WorkerSupervisor.prototype.handleConnection = function (port, connection) {
@@ -433,7 +435,10 @@ Standby.prototype.restart = function () {
         this.startDelayHandle = setTimeout(function () {
             worker.start();
         }, restartDelay);
+    } else {
+        worker.start();
     }
+
     return this;
 };
 

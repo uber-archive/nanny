@@ -207,7 +207,9 @@ ClusterSupervisor.prototype._spawnWorker = function (logicalId) {
     worker.on('close', this.handleWorkerCloseRequest);
     worker.on('bounce', this.handleWorkerBounce);
     worker.on('standby', this.handleWorkerStandby);
-    worker.start();
+    process.nextTick(function startWorker() {
+        worker.start();
+    });
     this.workers.push(worker);
 };
 

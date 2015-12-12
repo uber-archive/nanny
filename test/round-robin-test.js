@@ -35,7 +35,7 @@ test('communication with net server', function (assert) {
                 onlistening(port);
             }
         }
-        worker.process.on('message', onmessage);
+        worker.on('message', onmessage);
     });
 
     var listening = 0;
